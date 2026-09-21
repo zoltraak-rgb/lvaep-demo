@@ -132,3 +132,19 @@ test('calendar date selection prefills logging without saving and list remains a
     assert.equal(doc.querySelector('#calendar-list-view').getAttribute('aria-pressed'),'true');
   }finally{dom.window.close();}
 });
+test('weekly plan preview and retry preserve one plan without recording attendance',async()=>{
+  const calls=[];
+  const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{id:payload.p_id}};}}));
+  try {
+    await settle();const doc=dom.window.document;doc.querySelector('#new-plan').click();
+    doc.querySelector('#plan-start').value='2026-09-01';doc.querySelector('#plan-end').value='2026-09-22';
+    doc.querySelector('[name=plan-student]').checked=true;
+    const form=doc.querySelector('#plan-form');form.dispatchEvent(new dom.window.Event('input'));
+    assert.match(doc.querySelector('#plan-preview').textContent,/4 planned lessons/);
+    form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+    assert.equal(doc.querySelector('#plan-start').disabled,true);
+    form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+    assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].name,'create_weekly_plan');
+    assert.match(doc.querySelector('#plan-status').textContent,/No attendance has been recorded/);
+  }finally{dom.window.close();}
+});
