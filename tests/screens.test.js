@@ -100,3 +100,20 @@ test('monthly review sends the displayed snapshot and does not claim success on 
     assert.equal(doc.querySelector('#confirm-review').textContent,'Reload review');
   } finally {dom.window.close();}
 });
+test('failure to save suggested group never resubmits the saved lesson',async()=>{
+  const second='00000000-0000-4000-8000-000000000009';
+  fixture.students.push({id:second,display_name:'Second fictional learner'});
+  fixture.assignments.push({tutor_id:tutor,student_id:second,starts_on:'2020-01-01'});
+  const calls=[];
+  const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload});return name==='record_lesson'?{data:{status:'saved'}}:{error:{message:'offline'}};}}));
+  try{
+    await settle();const doc=dom.window.document;doc.querySelector('#open-log').click();
+    doc.querySelectorAll('[name=student]').forEach(input=>input.checked=true);
+    doc.querySelector('#lesson-form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+    assert.ok(doc.querySelector('#group-form'));doc.querySelector('#group-name').value='Fictional group';
+    for(let i=0;i<2;i++){doc.querySelector('#group-form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();}
+    assert.match(doc.querySelector('#group-status').textContent,/lesson is saved/);
+    assert.equal(calls.filter(c=>c.name==='record_lesson').length,1);
+    assert.equal(calls[1].payload.p_id,calls[2].payload.p_id);
+  }finally{dom.window.close();fixture.students.pop();fixture.assignments.pop();}
+});

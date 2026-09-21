@@ -66,7 +66,8 @@ function lessonList(items) {
 function home() {
   const mine=lessons.filter(l=>l.tutor_id===person.id&&!l.voided);
   const current=summarize(mine,nyToday().slice(0,7));
-  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a>':''}</nav>${isTutor()?`<section id="tutor-home"><section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><div id="calendar-records">${lessonList(current.lessons)}</div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Downloads are still being built.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><button class="quiet assign" data-id="${s.id}">Assign tutor</button></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a>':''}</nav>${isTutor()?`<section id="tutor-home"><section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button> <button class="quiet" id="new-group">Create a student group</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><div id="calendar-records">${lessonList(current.lessons)}</div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Downloads are still being built.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><button class="quiet assign" data-id="${s.id}">Assign tutor</button></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  document.querySelector('#new-group')?.addEventListener('click',()=>groupForm());
   document.querySelector('#open-review')?.addEventListener('click',()=>reviewForm(person.id));
   document.querySelector('#open-log')?.addEventListener('click',()=>logForm());
   document.querySelector('#calendar-month')?.addEventListener('change',event=>{
@@ -153,14 +154,29 @@ async function reviewForm(tutorId) {
 }
 function logForm() {
   requestId=crypto.randomUUID();
-  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${nyToday()}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="90" required><fieldset><legend>Who attended?</legend><div id="participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
+  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><div id="group-picker"></div><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${nyToday()}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="90" required><fieldset><legend>Who attended?</legend><div id="participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
   const form=document.querySelector('#lesson-form');
+  let savedGroups=[];
+  client.from('tutor_groups').select('*').eq('archived',false).then(({data,error})=>{
+    if(!form.isConnected||form.querySelector('#duration').disabled)return;
+    if(error){document.querySelector('#group-picker').textContent='Saved groups are unavailable. You can still choose students below.';return;}
+    savedGroups=data||[];
+    if(!savedGroups.length)return;
+    document.querySelector('#group-picker').innerHTML=`<label for="saved-group">Select a saved group (optional)</label><select id="saved-group"><option value="">Choose students individually</option>${savedGroups.map(g=>`<option value="${g.id}">${escape(g.name)}</option>`).join('')}</select><p id="group-hint" class="small muted"></p>`;
+    document.querySelector('#saved-group').onchange=event=>{
+      const group=savedGroups.find(g=>g.id===event.target.value);if(!group)return;
+      const available=[...form.querySelectorAll('[name=student]')];
+      available.forEach(input=>input.checked=group.student_ids.includes(input.value));
+      const missing=group.student_ids.filter(id=>!available.some(input=>input.value===id)).length;
+      document.querySelector('#group-hint').textContent=missing?'Some group members are not assigned for this date and were not selected.':'Change who attended below. This does not change your saved group.';
+    };
+  }).catch(()=>{});
   function choices() {
     const date=document.querySelector('#lesson-date').value;
     const assigned=new Set(assignments.filter(a=>a.tutor_id===person.id&&a.starts_on<=date&&(!a.ends_on||a.ends_on>=date)).map(a=>a.student_id));
     document.querySelector('#participants').innerHTML=students.filter(s=>assigned.has(s.id)).map(s=>`<div class="participant"><label class="check"><input type="checkbox" name="student" value="${s.id}"> ${escape(s.display_name)}</label><label class="partial">Minutes <input aria-label="Attendance minutes for ${escape(s.display_name)}" type="number" min="1" step="1" data-student="${s.id}" placeholder="Same as lesson"></label></div>`).join('')||'<p class="muted">No students are assigned for this date. Contact staff to check your assignments.</p>';
   }
-  document.querySelector('#lesson-date').onchange=choices; choices();
+  document.querySelector('#lesson-date').onchange=()=>{choices();const picker=document.querySelector('#saved-group');if(picker)picker.value='';}; choices();
   let pendingPayload=null;
   form.onsubmit=async event=>{
     event.preventDefault();
@@ -183,17 +199,36 @@ function logForm() {
       }
       if(result.status!=='saved') throw new Error('Unexpected save result');
       status.textContent='Saved.';
-      form.querySelectorAll('input').forEach(input=>input.disabled=true);
+      form.querySelectorAll('input,select').forEach(input=>input.disabled=true);
       button.textContent='Saved';
       // A refresh failure must never be reported as a failed save.
-      try {await reloadData();el.close();home();} catch {status.textContent='Saved. The record list could not refresh; close this form and reload the page.';}
+      try {await reloadData();el.close();home();if(selected.length>1&&!savedGroups.some(g=>g.student_ids.length===selected.length&&selected.every(s=>g.student_ids.includes(s.student_id))))groupForm(selected.map(s=>s.student_id),true);} catch {status.textContent='Saved. The record list could not refresh; close this form and reload the page.';}
     } catch(error) {
       if(!error.code) {
         pendingPayload=payload;
-        form.querySelectorAll('input').forEach(input=>input.disabled=true);
+        form.querySelectorAll('input,select').forEach(input=>input.disabled=true);
         status.textContent='Not saved yet—check your connection. Retry will safely check this exact submission.';
       } else {status.textContent=error.message||'Could not save. Check the values and try again.';}
       button.textContent='Retry save';button.disabled=false;
+    }
+  };
+}
+function groupForm(initial=[],afterLesson=false) {
+  const id=crypto.randomUUID();
+  const assigned=new Set(assignments.filter(a=>a.tutor_id===person.id).map(a=>a.student_id));
+  dialog(afterLesson?'Lesson saved · Save these students as a group?':'Create a student group',`<p>${afterLesson?'Your lesson is already saved. This optional step only saves a shortcut.':'A group selects students together; it never records attendance automatically.'}</p><form id="group-form"><label for="group-name">Group name</label><input id="group-name" maxlength="80" required><fieldset><legend>Students</legend>${students.filter(s=>assigned.has(s.id)).map(s=>`<label class="check"><input type="checkbox" name="member" value="${s.id}" ${initial.includes(s.id)?'checked':''}>${escape(s.display_name)}</label>`).join('')}</fieldset><p id="group-status" role="alert"></p><button class="primary">Save group</button> <button type="button" class="quiet" id="skip-group">${afterLesson?'Skip':'Cancel'}</button></form>`);
+  document.querySelector('#skip-group').onclick=()=>document.querySelector('#form-dialog').close();
+  document.querySelector('#group-form').onsubmit=async event=>{
+    event.preventDefault();const form=event.currentTarget,button=form.querySelector('button');
+    const members=[...form.querySelectorAll('[name=member]:checked')].map(input=>input.value);
+    if(!members.length){document.querySelector('#group-status').textContent='Select at least one student.';return;}
+    button.disabled=true;
+    try {
+      await checked(client.rpc('save_tutor_group',{p_id:id,p_name:document.querySelector('#group-name').value,p_students:members,p_archived:false,p_version:0}));
+      document.querySelector('#form-dialog').close();
+    } catch {
+      document.querySelector('#group-status').textContent=afterLesson?'Your lesson is saved. The group could not be saved; retry or skip.':'The group could not be saved. The database update may be pending, or the connection failed. Retry when available.';
+      button.disabled=false;
     }
   };
 }

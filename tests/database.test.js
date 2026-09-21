@@ -25,6 +25,7 @@ before(async()=>{
     grant execute on function auth.uid() to authenticated,anon;`);
   await db.exec(await readFile(new URL('../supabase/migrations/0001_foundation.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0003_monthly_reviews.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0004_tutor_groups.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -157,4 +158,18 @@ test('assigned tutor explicitly confirms zero sessions, while current month stay
   await call("select public.confirm_month_review('2026-07-01',$1::jsonb)",[JSON.stringify(review.snapshot)]);
   await assert.rejects(call("select public.confirm_month_review(date_trunc('month',now() at time zone 'America/New_York')::date,'{}')"),/opens next month/);
   await as('anon');await assert.rejects(call('select * from public.monthly_reviews'),/permission denied/);
+});
+
+test('groups are tutor-owned selection shortcuts; retry and edits never change attendance',async()=>{
+  await as('tutor');const id=uuid();
+  const saveGroup=(name='Reading group',version=0)=>call('select public.save_tutor_group($1,$2,$3,false,$4)',[id,name,[ids.student2,ids.student1,ids.student1],version]);
+  const before=await call('select * from public.attendance order by lesson_id,student_id');
+  await saveGroup();await saveGroup();
+  const rows=await call('select * from public.tutor_groups');assert.equal(rows.length,1);assert.equal(rows[0].student_ids.length,2);
+  await assert.rejects(saveGroup('Stale change',0),/Group changed/);
+  await saveGroup('Renamed',1);
+  assert.deepEqual(await call('select * from public.attendance order by lesson_id,student_id'),before);
+  await assert.rejects(call('select public.save_tutor_group($1,$2,$3,false,0)',[uuid(),'Invalid',[ids.hidden]]),/assigned students/);
+  await as('staff');assert.equal((await call('select * from public.tutor_groups')).length,0);
+  await assert.rejects(saveGroup(),/Tutor access required/);
 });
