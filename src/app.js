@@ -1,7 +1,7 @@
 import './styles.css';
 import {showAccountAccess} from './account-access.js';
 import {client,rememberSession} from './auth.js';
-import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers} from './domain.js';
+import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers,calendarDays} from './domain.js';
 const app=document.querySelector('#app');
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let person,students=[],assignments=[],lessons=[],people=[];
@@ -66,13 +66,38 @@ function lessonList(items) {
 function home() {
   const mine=lessons.filter(l=>l.tutor_id===person.id&&!l.voided);
   const current=summarize(mine,nyToday().slice(0,7));
-  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a>':''}</nav>${isTutor()?`<section id="tutor-home"><section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button> <button class="quiet" id="new-group">Create a student group</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><div id="calendar-records">${lessonList(current.lessons)}</div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Downloads are still being built.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><button class="quiet assign" data-id="${s.id}">Assign tutor</button></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a>':''}</nav>${isTutor()?`<section id="tutor-home"><section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button> <button class="quiet" id="new-group">Create a student group</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><div class="calendar-switch" aria-label="Calendar view"><button id="calendar-grid-view" class="secondary" aria-pressed="true">Month view</button><button id="calendar-list-view" class="quiet" aria-pressed="false">List view</button></div><div id="calendar-records"></div><div id="calendar-day" aria-live="polite"></div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Downloads are still being built.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><button class="quiet assign" data-id="${s.id}">Assign tutor</button></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
   document.querySelector('#new-group')?.addEventListener('click',()=>groupForm());
   document.querySelector('#open-review')?.addEventListener('click',()=>reviewForm(person.id));
   document.querySelector('#open-log')?.addEventListener('click',()=>logForm());
-  document.querySelector('#calendar-month')?.addEventListener('change',event=>{
-    document.querySelector('#calendar-records').innerHTML=lessonList(summarize(mine,event.target.value).lessons);
-  });
+  if(isTutor()) {
+    let view='month';
+    const render=()=>{
+      const month=document.querySelector('#calendar-month').value;
+      if(!calendarDays(month).length)return;
+      const items=summarize(mine,month).lessons;
+      const records=document.querySelector('#calendar-records');
+      document.querySelector('#calendar-day').innerHTML='';
+      document.querySelector('#calendar-grid-view').setAttribute('aria-pressed',String(view==='month'));
+      document.querySelector('#calendar-list-view').setAttribute('aria-pressed',String(view==='list'));
+      if(view==='list'){records.innerHTML=lessonList(items);return;}
+      records.innerHTML=`<p class="small muted">Recorded lessons only. Select a day for details or to log a lesson.</p><div class="calendar-grid" aria-label="${monthLabel(month)}">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=>`<span class="weekday">${day}</span>`).join('')}${calendarDays(month).map(date=>{
+        if(!date)return '<span aria-hidden="true"></span>';
+        const count=items.filter(l=>l.lesson_date===date).length;
+        return `<button class="calendar-date" data-date="${date}" aria-label="${date}, ${count} recorded lesson${count===1?'':'s'}" ${date===nyToday()?'aria-current="date"':''}><strong>${Number(date.slice(-2))}</strong>${count?`<small>${count} saved</small>`:''}</button>`;
+      }).join('')}</div>`;
+      records.querySelectorAll('[data-date]').forEach(button=>button.onclick=()=>{
+        records.querySelectorAll('[data-date]').forEach(day=>day.setAttribute('aria-pressed',String(day===button)));
+        const date=button.dataset.date;
+        document.querySelector('#calendar-day').innerHTML=`<h3>${escape(date)}</h3>${lessonList(items.filter(l=>l.lesson_date===date))}<button id="log-calendar-day" class="secondary">Log a lesson on this date</button>`;
+        document.querySelector('#log-calendar-day').onclick=()=>logForm(date);
+      });
+    };
+    document.querySelector('#calendar-month').onchange=render;
+    document.querySelector('#calendar-grid-view').onclick=()=>{view='month';render();};
+    document.querySelector('#calendar-list-view').onclick=()=>{view='list';render();};
+    render();
+  }
   if(isStaff()) {
     report();
     document.querySelector('#report-month').onchange=event=>{ if(event.target.value) {reportMonth=event.target.value;report();} };
@@ -152,9 +177,9 @@ async function reviewForm(tutorId) {
   document.querySelector('#review-month').onchange=load;
   await load();
 }
-function logForm() {
+function logForm(initialDate=nyToday()) {
   requestId=crypto.randomUUID();
-  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><div id="group-picker"></div><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${nyToday()}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="90" required><fieldset><legend>Who attended?</legend><div id="participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
+  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><div id="group-picker"></div><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${initialDate}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="90" required><fieldset><legend>Who attended?</legend><div id="participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
   const form=document.querySelector('#lesson-form');
   let savedGroups=[];
   client.from('tutor_groups').select('*').eq('archived',false).then(({data,error})=>{

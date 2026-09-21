@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {nyToday,previousMonth,summarize,minutesLabel,monthlyReportMembers} from '../src/domain.js';
+import {nyToday,previousMonth,summarize,minutesLabel,monthlyReportMembers,calendarDays} from '../src/domain.js';
 test('New York reporting date handles UTC midnight and both daylight-saving offsets',()=>{
   assert.equal(nyToday(new Date('2026-09-01T02:00:00Z')),'2026-08-31');
   assert.equal(nyToday(new Date('2026-03-08T06:59:00Z')),'2026-03-08');
@@ -28,4 +28,13 @@ test('monthly membership includes ended assignments, zero-session tutors and his
   ],[{tutor_id:'historical',lesson_date:'2026-08-03',minutes:90,attendance:[{student_id:'e',minutes:45}]}],'2026-08');
   assert.deepEqual([...members.keys()],['ended','zero','historical']);
   assert.deepEqual([...members.get('historical')],['e']);
+});
+
+test('calendar uses exact date-only days across leap years and daylight-saving months',()=>{
+  assert.equal(calendarDays('2024-02').filter(Boolean).length,29);
+  assert.equal(calendarDays('2025-02').filter(Boolean).length,28);
+  assert.equal(calendarDays('2026-03').filter(Boolean).length,31);
+  assert.equal(calendarDays('2026-11').filter(Boolean).at(-1),'2026-11-30');
+  assert.equal(calendarDays('2026-09')[0],null);
+  assert.deepEqual(calendarDays('2026-13'),[]);
 });

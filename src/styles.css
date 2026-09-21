@@ -3,3 +3,5 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 
 .report-row-meta{display:block;font-weight:400;color:var(--muted);font-size:.85rem;margin-top:6px}.tutor-report[hidden]{display:none}#report-search{margin-bottom:20px}#program-totals .metric-grid{margin-top:16px}
+
+.calendar-switch{display:flex;gap:10px;margin-bottom:16px}.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.weekday{text-align:center;font-size:.75rem;padding:8px 0}.calendar-date{min-height:64px;min-width:0;background:#f3f6ef;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 2px}.calendar-date strong,.calendar-date small{display:block}.calendar-date small{font-size:.65rem;margin-top:4px}.calendar-date[aria-current=date]{border:2px solid var(--green)}.calendar-date[aria-pressed=true]{background:var(--green);color:white}.calendar-date:focus-visible{outline:3px solid #946500;outline-offset:2px}#calendar-day{margin-top:18px}@media(max-width:480px){.calendar-date{min-height:52px}.calendar-grid{gap:2px}.calendar-date small{font-size:.6rem}}

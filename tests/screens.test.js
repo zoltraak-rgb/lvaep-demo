@@ -117,3 +117,18 @@ test('failure to save suggested group never resubmits the saved lesson',async()=
     assert.equal(calls[1].payload.p_id,calls[2].payload.p_id);
   }finally{dom.window.close();fixture.students.pop();fixture.assignments.pop();}
 });
+test('calendar date selection prefills logging without saving and list remains available',async()=>{
+  let writes=0;
+  const dom=screen(mockClient({rpc:async()=>{writes++;return {data:{}};}}));
+  try{
+    await settle();const doc=dom.window.document;
+    const month=doc.querySelector('#calendar-month');month.value='2026-08';month.dispatchEvent(new dom.window.Event('change'));
+    doc.querySelector('[data-date="2026-08-14"]').click();
+    assert.match(doc.querySelector('#calendar-day').textContent,/No recorded lessons/);
+    doc.querySelector('#log-calendar-day').click();
+    assert.equal(doc.querySelector('#lesson-date').value,'2026-08-14');assert.equal(writes,0);
+    doc.querySelector('#close-dialog').click();doc.querySelector('#calendar-list-view').click();
+    assert.equal(doc.querySelector('.calendar-grid'),null);
+    assert.equal(doc.querySelector('#calendar-list-view').getAttribute('aria-pressed'),'true');
+  }finally{dom.window.close();}
+});

@@ -32,3 +32,10 @@ export function monthlyReportMembers(assignments,lessons,month) {
   for(const l of summarize(lessons,month).lessons){add(l.tutor_id);for(const a of l.attendance||[])add(l.tutor_id,a.student_id);}
   return members;
 }
+export function calendarDays(month) {
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))return [];
+  const first=new Date(`${month}-01T12:00:00Z`);
+  const year=first.getUTCFullYear(),number=first.getUTCMonth();
+  const days=new Date(Date.UTC(year,number+1,0)).getUTCDate();
+  return [...Array(first.getUTCDay()).fill(null),...Array.from({length:days},(_,i)=>`${month}-${String(i+1).padStart(2,'0')}`)];
+}
