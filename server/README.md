@@ -18,3 +18,9 @@ Based on the [Supabase Send Email Hook](https://supabase.com/docs/guides/auth/au
 - `/account-access` page consuming the fragment token only after explicit user action, plus functional setup/password recovery pages. The account-access page is implemented locally; replacement-link pages explicitly report that recovery is not connected. Do not send hook links until invitation authorization, activation/revocation, durable delivery and recovery are integrated and tested.
 
 Tests use real signed fixtures and stub all delivery. They establish handler behavior, not durability of a production store, inbox delivery or full account recovery.
+
+## Durable delivery ledger (migration 0002, local only)
+
+`delivery-store.js` wraps service-role-only claim/finish RPCs. Migration 0002 stores hashed delivery keys and outcomes in the private schema, serializes reservations, and blocks pending/unknown/rejected replays. Completion is idempotent for an identical outcome. Ordinary browser roles cannot invoke either function or read the tables.
+
+Sending defaults OFF with allowance zero. Before enabling, an operator must verify the provider's remaining free quota and configure a conservative allowance. Reservations consume allowance even on unknown/rejected outcomes; no automatic refill or refund occurs. Dashboard/manual sends must be accounted for separately. The one-second database reservation interval is not a guarantee about actual network start times when workers are delayed: production dispatch still needs serialized sends/rate-limit handling. Unknown outcomes need reconciliation, not blind retries. No live migration or provider call was made.
