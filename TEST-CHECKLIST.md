@@ -26,3 +26,5 @@ No manual/deployed checks above have passed yet. No recipient delivery test has 
 - Password confirmation and minimum length, expired-link routing, changed identity, and uncertain-save handling covered by automated DOM tests.
 - Pending real browser checks: keyboard through Continue/password fields/Save, visible focus and error announcement, 375px mobile width and zoom, password-manager behavior. Browser automatic review usage-limit block prevented these checks; no alternate browser automation attempted.
 - Pending hosted checks: actual invite/reset, revoked invite cannot activate, same identity/assignments preserved, replacement-link request throttling, reload after token consumption. Recovery pages are explicitly unconnected; do not mark the full flow complete.
+
+Monthly review: migration 0003 is locally tested only. Verify deployed tutor confirmation, ended/zero-session membership, changed-since-review, staff read-only review, keyboard/month selection and stale-save handling before release. Pending linkage exception remains unimplemented.
