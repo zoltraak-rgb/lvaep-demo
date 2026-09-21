@@ -1,7 +1,7 @@
 import './styles.css';
 import {showAccountAccess} from './account-access.js';
 import {client,rememberSession} from './auth.js';
-import {nyToday,previousMonth,minutesLabel,monthLabel,summarize} from './domain.js';
+import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers} from './domain.js';
 const app=document.querySelector('#app');
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let person,students=[],assignments=[],lessons=[],people=[];
@@ -81,12 +81,25 @@ function home() {
 }
 function report() {
   const totals=summarize(lessons,reportMonth);
-  const tutorIds=[...new Set(totals.lessons.map(l=>l.tutor_id))];
-  document.querySelector('#report-content').innerHTML=`<p class="muted">${monthLabel(reportMonth)} · Records retrieved ${new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</p><div class="metric-grid"><div class="metric"><span>Distinct students attending</span><strong>${totals.studentCount}</strong></div><div class="metric"><span>Student attendance time</span><strong>${minutesLabel(totals.studentMinutes)}</strong></div></div><details><summary>Teaching time details</summary><p>Total hours taught: <strong>${minutesLabel(totals.teachingMinutes)}</strong></p><p class="small muted">Across all tutors for this month. Each shared lesson counts once, regardless of how many students attended.</p></details>${tutorIds.map(id=>{
+  const members=monthlyReportMembers(assignments,lessons,reportMonth);
+  const tutorIds=[...members.keys()].sort((a,b)=>(people.find(p=>p.id===a)?.display_name||'').localeCompare(people.find(p=>p.id===b)?.display_name||''));
+  const year=Number(reportMonth.slice(0,4)), fiscalStart=Number(reportMonth.slice(5))>=7?year:year-1;
+  document.querySelector('#report-content').innerHTML=`<p class="muted">${monthLabel(reportMonth)} · July ${fiscalStart}–June ${fiscalStart+1}<br>Records retrieved ${new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</p><label for="report-search">Find a tutor or student</label><input id="report-search" type="search" placeholder="Search by name"><div id="tutor-reports">${tutorIds.map(id=>{
     const data=summarize(totals.lessons.filter(l=>l.tutor_id===id),reportMonth);
-    return `<details><summary>${escape(people.find(p=>p.id===id)?.display_name||'Tutor')} <span>${minutesLabel(data.teachingMinutes)}</span></summary>${lessonList(data.lessons)}</details>`;
-  }).join('')||'<p class="empty">No recorded lessons for this month.</p>'}`;
+    const name=people.find(p=>p.id===id)?.display_name||'Tutor';
+    const studentIds=[...members.get(id)].sort((a,b)=>studentName(a).localeCompare(studentName(b)));
+    return `<details class="tutor-report" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'}</small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Review confirmation is not connected yet.</p>${studentIds.map(studentId=>{
+      const entries=data.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===studentId).map(a=>({date:l.lesson_date,minutes:a.minutes})));
+      return `<details><summary>${escape(studentName(studentId))}<small class="report-row-meta">${entries.length} session${entries.length===1?'':'s'} · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))} attended</small></summary><ul class="record-list">${entries.map(e=>`<li><strong>${escape(e.date)}</strong><span>${minutesLabel(e.minutes)}</span></li>`).join('')}</ul></details>`;
+    }).join('')}</details>`;
+  }).join('')||'<p class="empty">No tutor assignments or recorded lessons for this month.</p>'}</div><p id="report-no-match" class="empty" hidden>No tutor reports match that name.</p><details id="program-totals"><summary>Program totals</summary><div class="metric-grid"><div class="metric"><span>Total hours taught</span><strong>${minutesLabel(totals.teachingMinutes)}</strong></div><div class="metric"><span>Distinct students attending</span><strong>${totals.studentCount}</strong></div><div class="metric"><span>Student attendance time</span><strong>${minutesLabel(totals.studentMinutes)}</strong></div></div><p class="small muted">Totals cover the whole month, regardless of search. Each shared lesson counts once toward teaching time. Student attendance adds each learner’s actual time.</p></details>`;
+  document.querySelector('#report-search').oninput=event=>{
+    const query=event.target.value.trim().toLowerCase();let matches=0;
+    document.querySelectorAll('.tutor-report').forEach(row=>{row.hidden=!row.dataset.search.includes(query);if(!row.hidden)matches++;});
+    document.querySelector('#report-no-match').hidden=!query||matches>0;
+  };
 }
+
 function dialog(title,body) {
   const el=document.querySelector('#form-dialog');
   el.innerHTML=`<div class="section-heading"><h2>${title}</h2><button class="quiet" id="close-dialog" aria-label="Close dialog">Close</button></div>${body}`;

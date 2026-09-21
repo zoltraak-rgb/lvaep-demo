@@ -66,3 +66,21 @@ test('lost response freezes input and retry reuses the same logical request',asy
   assert.equal(doc.querySelector('#lesson-form'),null);
   dom.window.close();
 });
+test('staff report leads with tutors, shows individual partial attendance, and keeps program totals collapsed',async()=>{
+  const oldRoles=fixture.people[0].roles;
+  fixture.people[0].roles=['staff'];
+  fixture.lessons=[{id:'lesson',tutor_id:tutor,lesson_date:`${domain.previousMonth()}-12`,minutes:90,attendance:[{student_id:student,minutes:45}]}];
+  const dom=screen(mockClient());
+  try {
+    await settle();const doc=dom.window.document;
+    const row=doc.querySelector('.tutor-report');assert.ok(row);
+    assert.match(row.textContent,/1 hr 30 min taught/);assert.match(row.textContent,/45 min attended/);
+    const totals=doc.querySelector('#program-totals');assert.equal(totals.open,false);
+    assert.ok(doc.querySelector('#tutor-reports').compareDocumentPosition(totals)&dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+    const search=doc.querySelector('#report-search');search.value='fictional learner';search.dispatchEvent(new dom.window.Event('input'));
+    assert.equal(row.hidden,false);
+    search.value='no match';search.dispatchEvent(new dom.window.Event('input'));assert.equal(row.hidden,true);
+    assert.equal(doc.querySelector('#report-no-match').hidden,false);
+    assert.match(totals.textContent,/45 min/);
+  } finally {dom.window.close();fixture.people[0].roles=oldRoles;fixture.lessons=[];}
+});

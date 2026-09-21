@@ -22,3 +22,13 @@ export function summarize(lessons,month) {
   }
   return {lessons:included,teachingMinutes:included.reduce((n,l)=>n+l.minutes,0),studentMinutes,studentCount:students.size};
 }
+export function monthlyReportMembers(assignments,lessons,month) {
+  const first=`${month}-01`;
+  const [year,number]=month.split('-').map(Number);
+  const last=`${month}-${new Date(Date.UTC(year,number,0)).getUTCDate()}`;
+  const members=new Map();
+  const add=(tutor,student)=>{if(!members.has(tutor))members.set(tutor,new Set());if(student)members.get(tutor).add(student);};
+  for(const a of assignments) if(a.starts_on<=last&&(!a.ends_on||a.ends_on>=first))add(a.tutor_id,a.student_id);
+  for(const l of summarize(lessons,month).lessons){add(l.tutor_id);for(const a of l.attendance||[])add(l.tutor_id,a.student_id);}
+  return members;
+}
