@@ -27,6 +27,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0003_monthly_reviews.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0004_tutor_groups.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0005_recurring_plans.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0006_lesson_corrections.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -198,4 +199,21 @@ test('plan dates outside assignment fail atomically and moving one preserves ser
  await call("select public.change_plan_occurrence($1,'one','2026-07-02',45,$2,false,1)",[dates[0].id,[ids.student2]]);
  const moved=await call('select lesson_date::text as day,minutes from public.planned_occurrences where plan_id=$1 order by lesson_date',[id]);
  assert.deepEqual(moved,[{day:'2026-07-02',minutes:45},{day:'2026-07-08',minutes:90}]);
+});
+
+test('corrections are versioned, audited, retry-safe and invalidate prior monthly review',async()=>{
+ await as('tutor');const [{result:saved}]=await save(uuid(),participants('student2'),true,'2026-08-25');
+ const review=(await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r;
+ await call("select public.confirm_month_review('2026-08-01',$1::jsonb)",[JSON.stringify(review.snapshot)]);
+ const edit=(version,minutes)=>call("select public.correct_lesson($1,$2,'2026-08-25',$3,$4::jsonb,false,true) as r",[saved.lesson_id,version,minutes,JSON.stringify([{student_id:ids.student2,minutes}])]);
+ await edit(1,45);assert.equal((await edit(1,45))[0].r.replayed,true);
+ await assert.rejects(edit(1,30),/Lesson changed/);
+ assert.equal((await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r.status,'updated');
+ await as('staff');await edit(2,30);
+ const audit=await call("select * from public.audit_events where entity_id=$1 and action='corrected' order by id",[saved.lesson_id]);
+ assert.equal(audit.length,2);assert.equal(audit[1].actor_id,ids.staff);assert.equal(audit[0].before_value.minutes,90);
+ await call("select public.correct_lesson($1,3,'2026-08-25',30,$2::jsonb,true)",[saved.lesson_id,JSON.stringify([{student_id:ids.student2,minutes:30}])]);
+ assert.equal((await call('select voided from public.lessons where id=$1',[saved.lesson_id]))[0].voided,true);
+ assert.equal((await call('select count(*)::integer as n from public.attendance where lesson_id=$1',[saved.lesson_id]))[0].n,1);
+ await as('other');await assert.rejects(edit(4,15),/Lesson unavailable/);
 });

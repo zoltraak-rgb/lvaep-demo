@@ -148,3 +148,15 @@ test('weekly plan preview and retry preserve one plan without recording attendan
     assert.match(doc.querySelector('#plan-status').textContent,/No attendance has been recorded/);
   }finally{dom.window.close();}
 });
+test('uncertain correction freezes values and retries the same versioned update',async()=>{
+ fixture.lessons=[{id:'edit-fixture',tutor_id:tutor,lesson_date:`${domain.nyToday().slice(0,7)}-01`,minutes:90,version:1,attendance:[{student_id:student,minutes:90}]}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push(structuredClone(payload));return calls.length===1?{error:{message:'offline'}}:{data:{status:'saved'}};}}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('[data-edit-lesson]').click();
+  doc.querySelector('#edit-minutes').value='60';doc.querySelector('[data-edit-student]').value='45';
+  const form=doc.querySelector('#edit-lesson-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.equal(doc.querySelector('#edit-minutes').disabled,true);
+  form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].p_version,1);assert.equal(calls[0].p_participants[0].minutes,45);
+ }finally{dom.window.close();fixture.lessons=[];}
+});

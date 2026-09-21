@@ -3,6 +3,7 @@ import {showAccountAccess} from './account-access.js';
 import {client,rememberSession} from './auth.js';
 import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers,calendarDays} from './domain.js';
 const app=document.querySelector('#app');
+app.addEventListener('click',event=>{const button=event.target.closest('[data-edit-lesson]');if(button)editLesson(button.dataset.editLesson);});
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let person,students=[],assignments=[],lessons=[],people=[];
 let reportMonth=previousMonth();
@@ -55,13 +56,13 @@ async function reloadData() {
   [students,assignments,lessons,people]=await Promise.all([
     allRows(()=>client.from('students').select('*').order('display_name').order('id')),
     allRows(()=>client.from('assignments').select('*').order('id')),
-    allRows(()=>client.from('lessons').select('id,tutor_id,lesson_date,minutes,voided,attendance(student_id,minutes)').order('lesson_date',{ascending:false}).order('id')),
+    allRows(()=>client.from('lessons').select('id,tutor_id,lesson_date,minutes,version,voided,attendance(student_id,minutes)').order('lesson_date',{ascending:false}).order('id')),
     allRows(()=>client.from('people').select('id,display_name,roles,active').order('display_name').order('id'))
   ]);
 }
 const studentName=id=>students.find(s=>s.id===id)?.display_name||'Student';
 function lessonList(items) {
-  return items.length?`<ul class="record-list">${items.map(l=>`<li><div><strong>${l.attendance.map(a=>escape(studentName(a.student_id))).join(', ')}</strong><span>${escape(l.lesson_date)} · Recorded</span></div><strong>${minutesLabel(l.minutes)}</strong></li>`).join('')}</ul>`:'<p class="empty">No recorded lessons in this period.</p>';
+  return items.length?`<ul class="record-list">${items.map(l=>`<li><div><strong>${l.attendance.map(a=>escape(studentName(a.student_id))).join(', ')}</strong><span>${escape(l.lesson_date)} · Recorded</span></div><strong>${minutesLabel(l.minutes)}</strong><button class="quiet" data-edit-lesson="${l.id}">View / edit</button></li>`).join('')}</ul>`:'<p class="empty">No recorded lessons in this period.</p>';
 }
 function home() {
   const mine=lessons.filter(l=>l.tutor_id===person.id&&!l.voided);
@@ -117,8 +118,8 @@ function report() {
     const name=people.find(p=>p.id===id)?.display_name||'Tutor';
     const studentIds=[...members.get(id)].sort((a,b)=>studentName(a).localeCompare(studentName(b)));
     return `<details class="tutor-report" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'}</small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p><button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
-      const entries=data.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===studentId).map(a=>({date:l.lesson_date,minutes:a.minutes})));
-      return `<details><summary>${escape(studentName(studentId))}<small class="report-row-meta">${entries.length} session${entries.length===1?'':'s'} · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))} attended</small></summary><ul class="record-list">${entries.map(e=>`<li><strong>${escape(e.date)}</strong><span>${minutesLabel(e.minutes)}</span></li>`).join('')}</ul></details>`;
+      const entries=data.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===studentId).map(a=>({id:l.id,date:l.lesson_date,minutes:a.minutes})));
+      return `<details><summary>${escape(studentName(studentId))}<small class="report-row-meta">${entries.length} session${entries.length===1?'':'s'} · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))} attended</small></summary><ul class="record-list">${entries.map(e=>`<li><strong>${escape(e.date)}</strong><span>${minutesLabel(e.minutes)}</span><button class="quiet" data-edit-lesson="${e.id}">View / edit</button></li>`).join('')}</ul></details>`;
     }).join('')}</details>`;
   }).join('')||'<p class="empty">No tutor assignments or recorded lessons for this month.</p>'}</div><p id="report-no-match" class="empty" hidden>No tutor reports match that name.</p><details id="program-totals"><summary>Program totals</summary><div class="metric-grid"><div class="metric"><span>Total hours taught</span><strong>${minutesLabel(totals.teachingMinutes)}</strong></div><div class="metric"><span>Distinct students attending</span><strong>${totals.studentCount}</strong></div><div class="metric"><span>Student attendance time</span><strong>${minutesLabel(totals.studentMinutes)}</strong></div></div><p class="small muted">Totals cover the whole month, regardless of search. Each shared lesson counts once toward teaching time. Student attendance adds each learner’s actual time.</p></details>`;
   document.querySelectorAll('.check-review').forEach(button=>button.onclick=()=>reviewForm(button.dataset.tutor));
@@ -236,6 +237,31 @@ function logForm(initialDate=nyToday()) {
         status.textContent='Not saved yet—check your connection. Retry will safely check this exact submission.';
       } else {status.textContent=error.message||'Could not save. Check the values and try again.';}
       button.textContent='Retry save';button.disabled=false;
+    }
+  };
+}
+function editLesson(id) {
+  const lesson=lessons.find(l=>l.id===id);if(!lesson||lesson.voided)return;
+  dialog('Correct a recorded lesson',`<p>Changes update the saved record and its monthly review status. Previous values stay in the change history.</p><form id="edit-lesson-form"><label for="edit-date">Lesson date</label><input id="edit-date" type="date" value="${lesson.lesson_date}" required><label for="edit-minutes">Teaching minutes</label><input id="edit-minutes" type="number" min="1" step="1" value="${lesson.minutes}" required><fieldset><legend>Recorded student attendance</legend>${lesson.attendance.map(a=>`<label>${escape(studentName(a.student_id))}<input type="number" min="1" step="1" value="${a.minutes}" data-edit-student="${a.student_id}" required></label>`).join('')}</fieldset><label class="check"><input id="void-lesson" type="checkbox">Void this mistaken lesson instead of editing it. Exclude its hours from totals and retain its history.</label><div id="edit-warning"></div><p id="edit-status" role="alert"></p><button class="primary">Save correction</button></form>`);
+  const form=document.querySelector('#edit-lesson-form');let pending=null;
+  document.querySelector('#void-lesson').onchange=event=>{form.querySelectorAll('input:not([type=checkbox])').forEach(input=>input.disabled=event.target.checked);};
+  form.onsubmit=async event=>{
+    event.preventDefault();const button=form.querySelector('button'),status=document.querySelector('#edit-status');if(button.disabled)return;
+    const voided=document.querySelector('#void-lesson').checked;
+    const payload=pending||{p_id:id,p_version:lesson.version,p_date:voided?lesson.lesson_date:document.querySelector('#edit-date').value,p_minutes:voided?lesson.minutes:Number(document.querySelector('#edit-minutes').value),p_participants:voided?lesson.attendance.map(a=>({student_id:a.student_id,minutes:a.minutes})):[...form.querySelectorAll('[data-edit-student]')].map(input=>({student_id:input.dataset.editStudent,minutes:Number(input.value)})),p_void:voided,p_allow_additional:form.querySelector('#edit-additional')?.checked||false};
+    if(payload.p_participants.some(a=>!Number.isInteger(a.minutes)||a.minutes<=0||a.minutes>payload.p_minutes)){status.textContent='Student attendance must be positive whole minutes and no longer than the lesson.';return;}
+    button.disabled=true;status.textContent='Saving correction…';
+    try {
+      const result=await checked(client.rpc('correct_lesson',payload));
+      if(result.status==='duplicate_warning'){
+        pending=null;document.querySelector('#edit-warning').innerHTML=`<p>Other attendance is already recorded on this date:</p><ul>${result.existing.map(l=>`<li>${escape(l.date)} · ${minutesLabel(l.minutes)}</li>`).join('')}</ul><label class="check"><input id="edit-additional" type="checkbox">This is a separate lesson on that date.</label>`;status.textContent='Check the existing entries before saving.';button.disabled=false;return;
+      }
+      if(result.status!=='saved')throw Error('Unknown result');
+      status.textContent='Saved.';form.querySelectorAll('input').forEach(input=>input.disabled=true);button.textContent='Saved';
+      try{await reloadData();document.querySelector('#form-dialog').close();home();}catch{status.textContent='Correction saved. Reload the page to refresh the record list.';}
+    }catch(error){
+      if(!error.code){pending=payload;form.querySelectorAll('input').forEach(input=>input.disabled=true);status.textContent='Save not confirmed. Retry checks this exact correction.';button.disabled=false;button.textContent='Retry correction';}
+      else{status.textContent=error.message||'Correction could not be saved.';button.disabled=error.code==='40001';if(button.disabled)status.textContent+=' Close and refresh the page before editing again.';}
     }
   };
 }
