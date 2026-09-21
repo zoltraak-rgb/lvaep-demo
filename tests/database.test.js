@@ -24,6 +24,7 @@ before(async()=>{
     grant usage on schema auth to authenticated,anon;
     grant execute on function auth.uid() to authenticated,anon;`);
   await db.exec(await readFile(new URL('../supabase/migrations/0001_foundation.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0003_monthly_reviews.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -130,4 +131,30 @@ test('assignment retry is safe; overlap and non-tutor assignments are rejected',
   assert.equal((await call('select * from public.assignments where student_id=$1',[student])).length,1);
   await assert.rejects(call('select public.assign_student($1,$2,$3,$4)',[uuid(),ids.tutor,student,'2026-09-02']),/overlapping/);
   await assert.rejects(call('select public.assign_student($1,$2,$3,$4)',[uuid(),ids.staff,student,'2026-09-01']),/active tutor/);
+});
+
+test('review requires own tutor, past month and exact displayed records; retries retain one audit event',async()=>{
+  await as('tutor');
+  const get=async()=> (await call("select public.get_month_review($1,'2026-08-01') as result",[ids.tutor]))[0].result;
+  await assert.rejects(call("select public.get_month_review($1,'2026-08-01')",[ids.other]),/access denied/);
+  let review=await get();assert.equal(review.status,'not_reviewed');
+  await assert.rejects(call("select public.confirm_month_review('2026-08-01','{}'::jsonb)"),/Records changed/);
+  const confirm=()=>call("select public.confirm_month_review('2026-08-01',$1::jsonb)",[JSON.stringify(review.snapshot)]);
+  await confirm();await confirm();assert.equal((await get()).status,'reviewed');
+  await save(uuid(),participants('student2'),true,'2026-08-22');
+  assert.equal((await get()).status,'updated');
+  await assert.rejects(confirm(),/Records changed/);
+  review=await get();await confirm();assert.equal((await get()).status,'reviewed');
+  await as('staff');
+  assert.equal((await get()).status,'reviewed');
+  await assert.rejects(confirm(),/Tutor access required/);
+  assert.equal((await call("select * from public.audit_events where entity='monthly_review'")).length,2);
+});
+test('assigned tutor explicitly confirms zero sessions, while current month stays closed',async()=>{
+  await as('tutor');
+  const review=(await call("select public.get_month_review($1,'2026-07-01') as result",[ids.tutor]))[0].result;
+  assert.equal(review.snapshot.lessons.length,0);
+  await call("select public.confirm_month_review('2026-07-01',$1::jsonb)",[JSON.stringify(review.snapshot)]);
+  await assert.rejects(call("select public.confirm_month_review(date_trunc('month',now() at time zone 'America/New_York')::date,'{}')"),/opens next month/);
+  await as('anon');await assert.rejects(call('select * from public.monthly_reviews'),/permission denied/);
 });

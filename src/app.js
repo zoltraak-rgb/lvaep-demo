@@ -66,7 +66,8 @@ function lessonList(items) {
 function home() {
   const mine=lessons.filter(l=>l.tutor_id===person.id&&!l.voided);
   const current=summarize(mine,nyToday().slice(0,7));
-  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a>':''}</nav>${isTutor()?`<section id="tutor-home"><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><div id="calendar-records">${lessonList(current.lessons)}</div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Review confirmations and exports are not available in this first build.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><button class="quiet assign" data-id="${s.id}">Assign tutor</button></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a>':''}</nav>${isTutor()?`<section id="tutor-home"><section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><div id="calendar-records">${lessonList(current.lessons)}</div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Downloads are still being built.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><button class="quiet assign" data-id="${s.id}">Assign tutor</button></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  document.querySelector('#open-review')?.addEventListener('click',()=>reviewForm(person.id));
   document.querySelector('#open-log')?.addEventListener('click',()=>logForm());
   document.querySelector('#calendar-month')?.addEventListener('change',event=>{
     document.querySelector('#calendar-records').innerHTML=lessonList(summarize(mine,event.target.value).lessons);
@@ -88,11 +89,12 @@ function report() {
     const data=summarize(totals.lessons.filter(l=>l.tutor_id===id),reportMonth);
     const name=people.find(p=>p.id===id)?.display_name||'Tutor';
     const studentIds=[...members.get(id)].sort((a,b)=>studentName(a).localeCompare(studentName(b)));
-    return `<details class="tutor-report" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'}</small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Review confirmation is not connected yet.</p>${studentIds.map(studentId=>{
+    return `<details class="tutor-report" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'}</small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p><button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
       const entries=data.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===studentId).map(a=>({date:l.lesson_date,minutes:a.minutes})));
       return `<details><summary>${escape(studentName(studentId))}<small class="report-row-meta">${entries.length} session${entries.length===1?'':'s'} · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))} attended</small></summary><ul class="record-list">${entries.map(e=>`<li><strong>${escape(e.date)}</strong><span>${minutesLabel(e.minutes)}</span></li>`).join('')}</ul></details>`;
     }).join('')}</details>`;
   }).join('')||'<p class="empty">No tutor assignments or recorded lessons for this month.</p>'}</div><p id="report-no-match" class="empty" hidden>No tutor reports match that name.</p><details id="program-totals"><summary>Program totals</summary><div class="metric-grid"><div class="metric"><span>Total hours taught</span><strong>${minutesLabel(totals.teachingMinutes)}</strong></div><div class="metric"><span>Distinct students attending</span><strong>${totals.studentCount}</strong></div><div class="metric"><span>Student attendance time</span><strong>${minutesLabel(totals.studentMinutes)}</strong></div></div><p class="small muted">Totals cover the whole month, regardless of search. Each shared lesson counts once toward teaching time. Student attendance adds each learner’s actual time.</p></details>`;
+  document.querySelectorAll('.check-review').forEach(button=>button.onclick=()=>reviewForm(button.dataset.tutor));
   document.querySelector('#report-search').oninput=event=>{
     const query=event.target.value.trim().toLowerCase();let matches=0;
     document.querySelectorAll('.tutor-report').forEach(row=>{row.hidden=!row.dataset.search.includes(query);if(!row.hidden)matches++;});
@@ -106,6 +108,48 @@ function dialog(title,body) {
   el.setAttribute('aria-label',title);el.showModal();
   document.querySelector('#close-dialog').onclick=()=>el.close();
   return el;
+}
+async function reviewForm(tutorId) {
+  dialog('Monthly review',`<label for="review-month">Month</label><input id="review-month" type="month" value="${reportMonth}"><div id="review-body" aria-live="polite"></div>`);
+  const container=document.querySelector('#review-body');
+  let request=0;
+  async function load() {
+    const attempt=++request, month=document.querySelector('#review-month').value;
+    if(!month)return;
+    container.innerHTML='<p>Loading saved records…</p>';
+    try {
+      const data=await checked(client.rpc('get_month_review',{p_tutor:tutorId,p_month:`${month}-01`}));
+      if(attempt!==request||!container.isConnected)return;
+      if(!data?.snapshot)throw Error('Unavailable');
+      const snapshot=data.snapshot;
+      const status={not_reviewed:'Not yet reviewed',reviewed:'Reviewed',updated:'Updated since review'}[data.status]||'Status unavailable';
+      container.innerHTML=`<h3>${monthLabel(month)} · ${escape(status)}</h3>${data.confirmed_at?`<p class="small">Last confirmed ${escape(new Date(data.confirmed_at).toLocaleString())}</p>`:''}${snapshot.students.map(id=>{
+        const entries=snapshot.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===id).map(a=>({date:l.date,minutes:a.minutes})));
+        return `<details><summary>${escape(studentName(id))}<small class="report-row-meta">${entries.length} sessions · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))}</small></summary>${entries.length?`<ul class="record-list">${entries.map(e=>`<li>${escape(e.date)} · ${minutesLabel(e.minutes)}</li>`).join('')}</ul>`:'<p>No recorded sessions.</p>'}</details>`;
+      }).join('')||'<p>No assignments or lessons for this month.</p>'}<p>Confirmation covers every student listed above, including students with no recorded sessions.</p>${tutorId===person.id&&isTutor()&&data.can_confirm&&snapshot.students.length?`<button class="primary" id="confirm-review">${data.status==='reviewed'?'Review confirmed':`Confirm ${monthLabel(month)} review`}</button>`:''}${!data.can_confirm?'<p>Review opens on the 1st of the following month, New York time.</p>':''}<p id="review-status" role="alert"></p>`;
+      const button=container.querySelector('#confirm-review');
+      if(button){
+        button.disabled=data.status==='reviewed';
+        button.onclick=async()=>{
+          button.disabled=true;
+          try {
+            await checked(client.rpc('confirm_month_review',{p_month:`${month}-01`,p_snapshot:snapshot}));
+            if(attempt===request)await load();
+          } catch {
+            if(attempt!==request||!container.isConnected)return;
+            container.querySelector('#review-status').textContent='Confirmation could not be verified, or records changed. Reload the review before trying again.';
+            button.textContent='Reload review';button.disabled=false;button.onclick=load;
+          }
+        };
+      }
+    } catch {
+      if(attempt!==request||!container.isConnected)return;
+      container.innerHTML='<p>Monthly review is unavailable. The database update may still need to be installed, or the connection failed. No confirmation has been made here.</p><button class="secondary" id="retry-review">Try again</button>';
+      container.querySelector('#retry-review').onclick=load;
+    }
+  }
+  document.querySelector('#review-month').onchange=load;
+  await load();
 }
 function logForm() {
   requestId=crypto.randomUUID();

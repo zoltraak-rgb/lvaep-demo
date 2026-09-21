@@ -84,3 +84,19 @@ test('staff report leads with tutors, shows individual partial attendance, and k
     assert.match(totals.textContent,/45 min/);
   } finally {dom.window.close();fixture.people[0].roles=oldRoles;fixture.lessons=[];}
 });
+test('monthly review sends the displayed snapshot and does not claim success on failed confirmation',async()=>{
+  const snapshot={students:[student],lessons:[]};const calls=[];
+  const dom=screen(mockClient({rpc:async(name,payload)=>{
+    calls.push({name,payload});
+    return name==='get_month_review'?{data:{snapshot,status:'not_reviewed',can_confirm:true}}:{error:{message:'changed'}};
+  }}));
+  try {
+    await settle();const doc=dom.window.document;
+    doc.querySelector('#open-review').click();await settle();
+    assert.match(doc.querySelector('#review-body').textContent,/No recorded sessions/);
+    doc.querySelector('#confirm-review').click();await settle();
+    assert.deepEqual(calls[1].payload.p_snapshot,snapshot);
+    assert.match(doc.querySelector('#review-status').textContent,/could not be verified/);
+    assert.equal(doc.querySelector('#confirm-review').textContent,'Reload review');
+  } finally {dom.window.close();}
+});
