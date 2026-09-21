@@ -26,6 +26,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0001_foundation.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0003_monthly_reviews.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0004_tutor_groups.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0005_recurring_plans.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -172,4 +173,29 @@ test('groups are tutor-owned selection shortcuts; retry and edits never change a
   await assert.rejects(call('select public.save_tutor_group($1,$2,$3,false,0)',[uuid(),'Invalid',[ids.hidden]]),/assigned students/);
   await as('staff');assert.equal((await call('select * from public.tutor_groups')).length,0);
   await assert.rejects(saveGroup(),/Tutor access required/);
+});
+
+test('weekly plans retry safely and one/future cancellation never changes attendance',async()=>{
+ await as('tutor');const id=uuid();
+ const before=await call('select * from public.attendance order by lesson_id,student_id');
+ const create=()=>call("select public.create_weekly_plan($1,'2026-07-01','2026-07-22',90,$2)",[id,[ids.student2]]);
+ await create();await create();
+ const dates=await call('select * from public.planned_occurrences where plan_id=$1 order by lesson_date',[id]);assert.equal(dates.length,4);
+ await call("select public.change_plan_occurrence($1,'one',null,null,null,true,1)",[dates[1].id]);
+ assert.equal((await call('select * from public.planned_occurrences where plan_id=$1 and canceled',[id])).length,1);
+ await assert.rejects(call("select public.change_plan_occurrence($1,'future',null,null,null,true,1)",[dates[2].id]),/Plan changed/);
+ await call("select public.change_plan_occurrence($1,'future',null,null,null,true,2)",[dates[2].id]);
+ assert.equal((await call('select * from public.planned_occurrences where plan_id=$1 and canceled',[id])).length,3);
+ assert.deepEqual(await call('select * from public.attendance order by lesson_id,student_id'),before);
+ await as('staff');assert.equal((await call('select * from public.planned_occurrences')).length,0);
+});
+test('plan dates outside assignment fail atomically and moving one preserves series dates',async()=>{
+ await as('tutor');const id=uuid();
+ await assert.rejects(call("select public.create_weekly_plan($1,'2026-06-24','2026-07-08',90,$2)",[id,[ids.student2]]),/not assigned/);
+ assert.equal((await call('select * from public.lesson_plans where id=$1',[id])).length,0);
+ await call("select public.create_weekly_plan($1,'2026-07-01','2026-07-08',90,$2)",[id,[ids.student2]]);
+ const dates=await call('select * from public.planned_occurrences where plan_id=$1 order by lesson_date',[id]);
+ await call("select public.change_plan_occurrence($1,'one','2026-07-02',45,$2,false,1)",[dates[0].id,[ids.student2]]);
+ const moved=await call('select lesson_date::text as day,minutes from public.planned_occurrences where plan_id=$1 order by lesson_date',[id]);
+ assert.deepEqual(moved,[{day:'2026-07-02',minutes:45},{day:'2026-07-08',minutes:90}]);
 });
