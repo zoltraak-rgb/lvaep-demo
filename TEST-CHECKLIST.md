@@ -20,3 +20,9 @@
 - Complete every remaining feature/failure-case requirement from the final handoff; this checklist does not replace it.
 
 No manual/deployed checks above have passed yet. No recipient delivery test has run.
+
+## Account-link screens — local automated checks only
+- Signed invite/recovery token is retained only in page memory after removing the fragment. Opening the page does not call verifyOtp; Continue is required.
+- Password confirmation and minimum length, expired-link routing, changed identity, and uncertain-save handling covered by automated DOM tests.
+- Pending real browser checks: keyboard through Continue/password fields/Save, visible focus and error announcement, 375px mobile width and zoom, password-manager behavior. Browser automatic review usage-limit block prevented these checks; no alternate browser automation attempted.
+- Pending hosted checks: actual invite/reset, revoked invite cannot activate, same identity/assignments preserved, replacement-link request throttling, reload after token consumption. Recovery pages are explicitly unconnected; do not mark the full flow complete.

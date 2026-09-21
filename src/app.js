@@ -1,4 +1,5 @@
 import './styles.css';
+import {showAccountAccess} from './account-access.js';
 import {client,rememberSession} from './auth.js';
 import {nyToday,previousMonth,minutesLabel,monthLabel,summarize} from './domain.js';
 const app=document.querySelector('#app');
@@ -157,7 +158,9 @@ function assignmentForm(studentId) {
     catch(error) {document.querySelector('#form-status').textContent=error.message||'Could not save. Try again.';button.disabled=false;}
   };
 }
-if(client) {
+if(showAccountAccess({client,shell})) {
+  // Account-link handling owns this page until the user finishes or leaves.
+} else if(client) {
   shell('<section class="card" role="status"><h1>Opening your workspace…</h1></section>');
   loadHome();
   client.auth.onAuthStateChange(event=>{

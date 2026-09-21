@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {JSDOM} from 'jsdom';
+import {showAccountAccess} from '../src/account-access.js';
 import * as domain from '../src/domain.js';
 const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 const tutor='00000000-0000-4000-8000-000000000001';
@@ -17,7 +18,7 @@ function mockClient({failReads=false,rpc}={}) {
 }
 function screen(client=null) {
   const dom=new JSDOM('<div id="app"></div>',{url:'https://local.test/',runScripts:'outside-only'});
-  Object.assign(dom.window,domain,{client,rememberSession:()=>{}});
+  Object.assign(dom.window,domain,{client,rememberSession:()=>{},showAccountAccess:options=>showAccountAccess({...options,document:dom.window.document,location:dom.window.location,history:dom.window.history})});
   dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
   dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
   dom.window.alert=()=>{};

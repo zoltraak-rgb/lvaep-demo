@@ -15,6 +15,6 @@ Based on the [Supabase Send Email Hook](https://supabase.com/docs/guides/auth/au
 - Server-owned invitation registry/current-account authorization; never trust user-editable metadata. Check revocation before each delivery, including replay.
 - Atomic durable claim keyed by a digest of identity, recipient, action and token. Existing pending, unknown or rejected claims block retry; accepted claims acknowledge without resending. Failed completion writes leave the claim pending. The test Map is a fixture only.
 - Dispatcher enforcing the provider rate limit, free quota and private-key configuration. No automatic retry of ambiguous outcomes.
-- `/account-access` page consuming the fragment token only after explicit user action, plus functional setup/password recovery pages. These pages are still unimplemented, so generated hook links must not be sent to users yet.
+- `/account-access` page consuming the fragment token only after explicit user action, plus functional setup/password recovery pages. The account-access page is implemented locally; replacement-link pages explicitly report that recovery is not connected. Do not send hook links until invitation authorization, activation/revocation, durable delivery and recovery are integrated and tested.
 
 Tests use real signed fixtures and stub all delivery. They establish handler behavior, not durability of a production store, inbox delivery or full account recovery.
