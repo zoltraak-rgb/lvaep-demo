@@ -87,7 +87,7 @@ function lessonList(items) {
 function home() {
   const mine=lessons.filter(l=>l.tutor_id===person.id&&!l.voided);
   const current=summarize(mine,nyToday().slice(0,7));
-  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a>':''}</nav>${isTutor()?`<section id="tutor-home"><section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button> <button class="quiet" id="new-group">Create a student group</button> <button class="quiet" id="missing-student">Student missing?</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><button id="new-plan" class="secondary">Plan weekly lessons</button><div class="calendar-switch" aria-label="Calendar view"><button id="calendar-grid-view" class="secondary" aria-pressed="true">Month view</button><button id="calendar-list-view" class="quiet" aria-pressed="false">List view</button></div><div id="calendar-records"></div><div id="calendar-day" aria-live="polite"></div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Use Print / Save PDF to save a PDF through your browser’s print window.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button><button id="student-requests" class="quiet">Missing-student requests</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><button class="quiet assign" data-id="${s.id}">Assign tutor</button></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a><button class="quiet" id="open-history">Change history</button>':''}</nav>${isTutor()?`<section id="tutor-home"><section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button> <button class="quiet" id="new-group">Create a student group</button> <button class="quiet" id="missing-student">Student missing?</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><button id="new-plan" class="secondary">Plan weekly lessons</button><div class="calendar-switch" aria-label="Calendar view"><button id="calendar-grid-view" class="secondary" aria-pressed="true">Month view</button><button id="calendar-list-view" class="quiet" aria-pressed="false">List view</button></div><div id="calendar-records"></div><div id="calendar-day" aria-live="polite"></div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Use Print / Save PDF to save a PDF through your browser’s print window.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button><button id="student-requests" class="quiet">Missing-student requests</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><div><button class="quiet edit-student" data-id="${s.id}">Edit student</button>${!s.archived?`<button class="quiet assign" data-id="${s.id}">Assign tutor</button>`:""}</div></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
   document.querySelector('#student-requests')?.addEventListener('click',staffRequests);
   document.querySelector('#missing-student')?.addEventListener('click',missingStudentForm);
   document.querySelector('#new-plan')?.addEventListener('click',planForm);
@@ -128,7 +128,9 @@ function home() {
     report();
     document.querySelector('#report-month').onchange=event=>{ if(event.target.value) {reportMonth=event.target.value;report();} };
     document.querySelector('#refresh-report').onclick=async event=>{event.target.disabled=true; try {await reloadData();report();} catch {alert('Could not refresh. Previously loaded records are still shown.');} finally {event.target.disabled=false;} };
-    document.querySelector('#add-student').onclick=studentForm;
+    document.querySelector('#add-student').onclick=()=>studentForm();
+    document.querySelector('#open-history').onclick=historyForm;
+    document.querySelectorAll('.edit-student').forEach(button=>button.onclick=()=>studentForm(students.find(s=>s.id===button.dataset.id)));
     document.querySelectorAll('.assign').forEach(button=>button.onclick=()=>assignmentForm(button.dataset.id));
   }
 }
@@ -497,14 +499,51 @@ function groupForm(initial=[],afterLesson=false) {
     }
   };
 }
-function studentForm() {
-  const id=crypto.randomUUID();
-  dialog('Add student','<form id="student-form"><label for="student-name">Student name</label><input id="student-name" maxlength="120" required><p class="small muted">Use fictional information for this demonstration. Matching names are kept as separate people.</p><p id="form-status" role="alert"></p><button class="primary">Save student</button></form>');
-  document.querySelector('#student-form').onsubmit=async event=>{
-    event.preventDefault();const button=event.currentTarget.querySelector('button');button.disabled=true;
-    try {await checked(client.rpc('save_student',{p_id:id,p_name:document.querySelector('#student-name').value,p_archived:false,p_version:0})); document.querySelector('#form-status').textContent='Saved.';await loadHome();}
-    catch(error) {document.querySelector('#form-status').textContent=error.message||'Could not save. Try again.';button.disabled=false;}
+function studentForm(student=null) {
+  const id=student?.id||crypto.randomUUID();let frozen=null;
+  dialog(student?'Edit student':'Add student',`<form id="student-form"><label for="student-name">Student name</label><input id="student-name" maxlength="120" value="${escape(student?.display_name||'')}" required><p class="small muted">Use fictional information. Matching names remain separate people.</p>${student?`<label class="check"><input id="student-archived" type="checkbox" ${student.archived?'checked':''}>Archive this student</label><p class="small">Archiving preserves lessons and existing assignments, and prevents new assignments. Uncheck to restore the student. Ending a tutor’s assignment is a separate action.</p>`:''}<p id="form-status" role="alert"></p><button class="primary">Save student</button></form>`);
+  const form=document.querySelector('#student-form');
+  form.onsubmit=async event=>{
+    event.preventDefault();const button=form.querySelector('button'),status=form.querySelector('#form-status');if(button.disabled)return;
+    const payload=frozen||{p_id:id,p_name:form.querySelector('#student-name').value.trim(),p_archived:form.querySelector('#student-archived')?.checked||false,p_version:student?.version||0};
+    if(!payload.p_name){status.textContent='Enter a student name.';return;}
+    button.disabled=true;status.textContent='Saving…';
+    try{
+      await checked(client.rpc('save_student',payload));
+      status.textContent='Student saved.';button.textContent='Saved';form.querySelectorAll('input').forEach(input=>input.disabled=true);
+      try{await reloadData();home();}catch{status.textContent='Student saved. Reload to refresh the roster.';}
+    }catch(error){
+      if(!error.code){frozen=payload;form.querySelectorAll('input').forEach(input=>input.disabled=true);status.textContent='Save not confirmed. Retry checks the same change.';button.textContent='Retry save';}
+      else status.textContent=error.message||'Could not save the student.';
+      button.disabled=error.code==='40001';if(button.disabled)status.textContent+=' Close and refresh before editing again.';
+    }
   };
+}
+async function historyForm() {
+  dialog('Change history','<p>Staff-only history. Original and changed values are retained; newest changes appear first.</p><div id="history-records"></div><p id="history-status" role="status"></p><button class="secondary" id="history-more">Load changes</button>');
+  const container=document.querySelector('#history-records'),status=document.querySelector('#history-status'),button=document.querySelector('#history-more');let offset=0;
+  const labels={actor_id:'Changed by',tutor_id:'Tutor',student_id:'Student',lesson_id:'Lesson reference',request_id:'Request reference',minutes:'Minutes',lesson_date:'Lesson date',display_name:'Name',starts_on:'Start date',ends_on:'End date',archived:'Archived',voided:'Voided',confirmed_at:'Confirmed at',reviewed_snapshot:'Reviewed records',before_value:'Original values',after_value:'New values'};
+  function valueHtml(value,key=''){
+    if(value===null||value===undefined)return '<span class="muted">None</span>';
+    if(Array.isArray(value))return value.length?`<ul>${value.map(v=>`<li>${valueHtml(v,key)}</li>`).join('')}</ul>`:'None';
+    if(typeof value==='object')return `<dl class="history-values">${Object.entries(value).map(([k,v])=>`<dt>${escape(labels[k]||k.replaceAll('_',' '))}</dt><dd>${valueHtml(v,k)}</dd>`).join('')}</dl>`;
+    const name=['actor_id','tutor_id'].includes(key)?people.find(p=>p.id===value)?.display_name:key==='student_id'?students.find(s=>s.id===value)?.display_name:null;
+    return escape(name?`${name} (${value})`:value);
+  }
+  button.onclick=async()=>{
+    button.disabled=true;status.textContent='Loading changes…';
+    try{
+      const rows=await checked(client.from('audit_events').select('*').order('created_at',{ascending:false}).order('id',{ascending:false}).range(offset,offset+49));
+      if(!container.isConnected)return;
+      for(const row of rows){
+        const entry=document.createElement('details');
+        entry.innerHTML=`<summary>${escape(row.entity.replaceAll('_',' '))} · ${escape(row.action.replaceAll('_',' '))}<small class="report-row-meta">${escape(new Date(row.created_at).toLocaleString())} · ${escape(people.find(p=>p.id===row.actor_id)?.display_name||'System / unavailable actor')}</small></summary><p class="small">Record reference: ${escape(row.entity_id)}</p><h3>Original values</h3>${valueHtml(row.before_value)}<h3>New values</h3>${valueHtml(row.after_value)}`;
+        container.append(entry);
+      }
+      offset+=rows.length;status.textContent=offset?`${offset} changes loaded.`:'No changes recorded.';button.hidden=rows.length<50;button.textContent='Load older changes';button.disabled=false;
+    }catch{if(container.isConnected){status.textContent='History could not load. This does not mean there are no changes. Try again.';button.disabled=false;}}
+  };
+  await button.onclick();
 }
 function assignmentForm(studentId) {
   const id=crypto.randomUUID();

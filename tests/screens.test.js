@@ -281,3 +281,18 @@ test('print snapshot includes filtered-out tutors and expanded details without e
   dom.window.dispatchEvent(new dom.window.Event('afterprint'));assert.equal(doc.querySelector('#printable-report'),null);
  }finally{fixture.people[0].roles=roles;fixture.lessons=[];dom.window.close();}
 });
+
+test('staff student edit retains identity and version and freezes uncertain archive retry',async()=>{
+ const roles=fixture.people[0].roles;fixture.people[0].roles=['staff'];fixture.students[0].version=4;
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{if(name!=='save_student')return {data:{status:'reviewed',can_confirm:true}};calls.push(structuredClone(payload));return calls.length===1?{error:{message:'offline'}}:{data:{id:student}};}}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('.edit-student').click();doc.querySelector('#student-name').value='Corrected name';doc.querySelector('#student-archived').checked=true;
+  const form=doc.querySelector('#student-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.ok(doc.querySelector('#student-name').disabled);
+  form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].p_id,student);assert.equal(calls[0].p_version,4);assert.equal(calls[0].p_archived,true);
+ }finally{fixture.people[0].roles=roles;delete fixture.students[0].version;dom.window.close();}
+});
+test('staff history renders original values as text and tutors have no history control',async()=>{
+ const roles=fixture.people[0].roles;fixture.people[0].roles=['staff'];fixture.audit_events=[{id:1,entity:'student',entity_id:student,action:'saved',actor_id:tutor,created_at:'2026-09-22T16:00:00Z',before_value:{display_name:'Old'},after_value:{display_name:'<script>unsafe</script>',archived:true}}];
+ const dom=screen(mockClient());try{await settle();const doc=dom.window.document;doc.querySelector('#open-history').click();await settle();assert.match(doc.querySelector('#history-records').textContent,/Old/);assert.match(doc.querySelector('#history-records').textContent,/<script>unsafe/);assert.equal(doc.querySelector('script'),null);assert.equal(doc.querySelector('#history-more').hidden,true);}finally{dom.window.close();fixture.people[0].roles=roles;delete fixture.audit_events;}
+ const tutorScreen=screen(mockClient());await settle();assert.equal(tutorScreen.window.document.querySelector('#open-history'),null);tutorScreen.window.close();
+});

@@ -19,3 +19,5 @@
  #printable-report .hours-track span{background:#444;print-color-adjust:exact}#printable-report .hours-chart li{break-inside:avoid}
 }
 @media(max-width:480px){.hours-chart li{grid-template-columns:1fr auto}.hours-track{grid-column:1/-1;grid-row:auto}.hours-chart strong{grid-column:2;grid-row:auto}}
+
+.history-values{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,2fr);gap:6px 12px;font-size:.85rem}.history-values dt{font-weight:600}.history-values dd{margin:0;overflow-wrap:anywhere}.history-values .history-values{display:block}.history-values ul{padding-left:16px}
