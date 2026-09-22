@@ -181,3 +181,15 @@ test('planned calendar separates attendance and prevents blind repeat after unce
   form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls.length,1);
  } finally {dom.window.close();fixture.lesson_plans=[];fixture.planned_occurrences=[];}
 });
+
+test('held plan prefills confirmation and uses linked save without automatically recording',async()=>{
+ const month=domain.nyToday().slice(0,7);fixture.lesson_plans=[{id:'held-plan',version:2,tutor_id:tutor}];
+ fixture.planned_occurrences=[{id:'held-occurrence',plan_id:'held-plan',lesson_date:`${month}-05`,minutes:60,student_ids:[student],canceled:false,lesson_id:null}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload});return {error:{code:'P0001',message:'test validation'}};}}));
+ try {
+  await settle();const doc=dom.window.document;doc.querySelector('#calendar-list-view').click();doc.querySelector('[data-held-plan]').click();
+  assert.equal(calls.length,0);assert.equal(doc.querySelector('#duration').value,'60');assert.ok(doc.querySelector('[name=student]').checked);
+  doc.querySelector('[data-student]').value='45';doc.querySelector('#lesson-form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.equal(calls[0].name,'record_planned_lesson');assert.equal(calls[0].payload.p_occurrence,'held-occurrence');assert.equal(calls[0].payload.p_plan_version,2);assert.equal(calls[0].payload.p_participants[0].minutes,45);
+ }finally {dom.window.close();fixture.lesson_plans=[];fixture.planned_occurrences=[];}
+});

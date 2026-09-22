@@ -3,7 +3,7 @@ import {showAccountAccess} from './account-access.js';
 import {client,rememberSession} from './auth.js';
 import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers,calendarDays} from './domain.js';
 const app=document.querySelector('#app');
-app.addEventListener('click',event=>{const button=event.target.closest('[data-edit-lesson]');if(button)editLesson(button.dataset.editLesson);const plan=event.target.closest('[data-edit-plan]');if(plan)editPlan(plan.dataset.editPlan);});
+app.addEventListener('click',event=>{const button=event.target.closest('[data-edit-lesson]');if(button)editLesson(button.dataset.editLesson);const plan=event.target.closest('[data-edit-plan]');if(plan)editPlan(plan.dataset.editPlan);const held=event.target.closest('[data-held-plan]');if(held){const o=occurrences.find(o=>o.id===held.dataset.heldPlan);if(o)logForm(o.lesson_date,o);}});
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let person,students=[],assignments=[],lessons=[],people=[],plans=[],occurrences=[];
 let reportMonth=previousMonth();
@@ -89,7 +89,7 @@ function home() {
       records.innerHTML=`<p class="small muted">Plans do not count as attendance. Select a day for planned and recorded lessons.</p><div class="calendar-grid" aria-label="${monthLabel(month)}">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=>`<span class="weekday">${day}</span>`).join('')}${calendarDays(month).map(date=>{
         if(!date)return '<span aria-hidden="true"></span>';
         const count=items.filter(l=>l.lesson_date===date).length;
-        const scheduled=planned.filter(o=>o.lesson_date===date&&!o.canceled).length;
+        const scheduled=planned.filter(o=>o.lesson_date===date&&!o.canceled&&!o.lesson_id).length;
         return `<button class="calendar-date" data-date="${date}" aria-label="${date}, ${count} recorded lesson${count===1?'':'s'}, ${scheduled} planned" ${date===nyToday()?'aria-current="date"':''}><strong>${Number(date.slice(-2))}</strong>${count?`<small>${count} saved</small>`:''}${scheduled?`<small>${scheduled} planned</small>`:''}</button>`;
       }).join('')}</div>`;
       records.querySelectorAll('[data-date]').forEach(button=>button.onclick=()=>{
@@ -183,9 +183,9 @@ async function reviewForm(tutorId) {
   document.querySelector('#review-month').onchange=load;
   await load();
 }
-function logForm(initialDate=nyToday()) {
+function logForm(initialDate=nyToday(),planned=null) {
   requestId=crypto.randomUUID();
-  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><div id="group-picker"></div><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${initialDate}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="90" required><fieldset><legend>Who attended?</legend><div id="participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
+  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><div id="group-picker"></div><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${initialDate}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="${planned?.minutes||90}" required><fieldset><legend>Who attended?</legend><div id="participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
   const form=document.querySelector('#lesson-form');
   let savedGroups=[];
   client.from('tutor_groups').select('*').eq('archived',false).then(({data,error})=>{
@@ -208,6 +208,11 @@ function logForm(initialDate=nyToday()) {
     document.querySelector('#participants').innerHTML=students.filter(s=>assigned.has(s.id)).map(s=>`<div class="participant"><label class="check"><input type="checkbox" name="student" value="${s.id}"> ${escape(s.display_name)}</label><label class="partial">Minutes <input aria-label="Attendance minutes for ${escape(s.display_name)}" type="number" min="1" step="1" data-student="${s.id}" placeholder="Same as lesson"></label></div>`).join('')||'<p class="muted">No students are assigned for this date. Contact staff to check your assignments.</p>';
   }
   document.querySelector('#lesson-date').onchange=()=>{choices();const picker=document.querySelector('#saved-group');if(picker)picker.value='';}; choices();
+  if(planned){
+    form.querySelectorAll('[name=student]').forEach(input=>input.checked=planned.student_ids.includes(input.value));
+    const missing=planned.student_ids.some(id=>!form.querySelector(`[name=student][value="${id}"]`));
+    document.querySelector('#save-status').textContent=missing?'Some planned students are no longer assigned on this date. Check participants before saving.':'Check who attended and the actual minutes, then save. Nothing has been recorded yet.';
+  }
   let pendingPayload=null;
   form.onsubmit=async event=>{
     event.preventDefault();
@@ -222,7 +227,7 @@ function logForm(initialDate=nyToday()) {
     const button=form.querySelector('button[type=submit]')||form.querySelector('button.primary');
     button.disabled=true;status.textContent='Saving…';
     try {
-      const result=await checked(client.rpc('record_lesson',payload));
+      const result=await checked(client.rpc(planned?'record_planned_lesson':'record_lesson',planned?{...payload,p_occurrence:planned.id,p_plan_version:plans.find(p=>p.id===planned.plan_id)?.version}:payload));
       pendingPayload=null;
       if(result.status==='duplicate_warning') {
         document.querySelector('#duplicate-warning').innerHTML=`<div class="notice"><strong>There is already attendance on this date.</strong><ul>${result.existing.map(l=>`<li>${escape(l.date)} · ${minutesLabel(l.minutes)}</li>`).join('')}</ul><label class="check"><input id="additional" type="checkbox"> This is another lesson. Save it separately.</label><p class="small">Or close this form to return to your recorded lessons.</p></div>`;
@@ -270,7 +275,7 @@ function editLesson(id) {
   };
 }
 function plannedList(items) {
-  return items.length?`<h3>Planned lessons</h3><ul class="record-list">${items.map(o=>`<li><div><strong>${o.student_ids.map(id=>escape(studentName(id))).join(', ')}</strong><span>${escape(o.lesson_date)} · ${o.canceled?'Canceled':'Planned'} · ${minutesLabel(o.minutes)}</span></div>${o.canceled?'':`<button class="quiet" data-edit-plan="${o.id}">Change plan</button>`}</li>`).join('')}</ul>`:'';
+  return items.length?`<h3>Planned lessons</h3><ul class="record-list">${items.map(o=>`<li><div><strong>${o.student_ids.map(id=>escape(studentName(id))).join(', ')}</strong><span>${escape(o.lesson_date)} · ${o.lesson_id?'Attendance recorded':o.canceled?'Canceled':'Planned'} · ${minutesLabel(o.minutes)}</span></div>${o.lesson_id?`<button class="quiet" data-edit-lesson="${o.lesson_id}">View / edit attendance</button>`:o.canceled?'':`${'lesson_id' in o?`<button class="secondary" data-held-plan="${o.id}">Held as planned — log ${minutesLabel(o.minutes)}</button>`:''}<button class="quiet" data-edit-plan="${o.id}">Change plan</button>`}</li>`).join('')}</ul>`:'';
 }
 function editPlan(id) {
   const occurrence=occurrences.find(o=>o.id===id),plan=plans.find(p=>p.id===occurrence?.plan_id);

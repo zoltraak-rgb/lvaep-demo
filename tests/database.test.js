@@ -28,6 +28,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0004_tutor_groups.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0005_recurring_plans.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0006_lesson_corrections.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0007_planned_attendance.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -216,4 +217,21 @@ test('corrections are versioned, audited, retry-safe and invalidate prior monthl
  assert.equal((await call('select voided from public.lessons where id=$1',[saved.lesson_id]))[0].voided,true);
  assert.equal((await call('select count(*)::integer as n from public.attendance where lesson_id=$1',[saved.lesson_id]))[0].n,1);
  await as('other');await assert.rejects(edit(4,15),/Lesson unavailable/);
+});
+
+test('planned attendance is atomic, retry-safe, owned and protected from schedule changes',async()=>{
+ await as('tutor');const id=uuid(),request=uuid();
+ await call("select public.create_weekly_plan($1,'2026-08-02','2026-08-09',90,$2)",[id,[ids.student1]]);
+ const occurrences=await call('select * from public.planned_occurrences where plan_id=$1 order by lesson_date',[id]);
+ const record=(req=request)=>call("select public.record_planned_lesson($1,1,$2,'2026-08-09',60,$3::jsonb,true) as r",[occurrences[1].id,req,JSON.stringify([{student_id:ids.student1,minutes:45}])]);
+ await db.exec('reset role');await db.query("update public.people set active=true,roles=array['tutor'] where id=$1",[ids.other]);
+ await as('other');await assert.rejects(record(),/Plan unavailable/);
+ await as('tutor');const saved=(await record())[0].r;assert.equal((await record())[0].r.replayed,true);
+ await assert.rejects(record(uuid()),/already has a saved lesson/);
+ assert.equal((await call('select lesson_id from public.planned_occurrences where id=$1',[occurrences[1].id]))[0].lesson_id,saved.lesson_id);
+ await call("select public.change_plan_occurrence($1,'future','2026-08-03',30,$2,false,1)",[occurrences[0].id,[ids.student1]]);
+ assert.equal((await call('select lesson_date::text as day from public.planned_occurrences where id=$1',[occurrences[1].id]))[0].day,'2026-08-09');
+ await assert.rejects(call("select public.change_plan_occurrence($1,'one',null,null,null,true,2)",[occurrences[1].id]),/recorded attendance/);
+ await call("select public.change_plan_occurrence($1,'one',null,null,null,true,2)",[occurrences[0].id]);
+ await assert.rejects(call("select public.record_planned_lesson($1,3,$2,'2026-08-03',90,$3::jsonb,true)",[occurrences[0].id,uuid(),JSON.stringify(participants('student1'))]),/canceled/);
 });
