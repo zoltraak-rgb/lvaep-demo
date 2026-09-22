@@ -34,6 +34,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0010_pending_corrections.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0011_request_corrections.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0012_achievements.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0013_assignment_endings.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -416,4 +417,22 @@ test('achievement edits invalidate the achieved month review and removal preserv
  assert.deepEqual(audit.map(a=>a.action),['recorded','corrected','removed']);assert.equal(audit[2].before_value.notes,'Fictional correction');
  assert.ok(!(await review()).snapshot.achievements.some(a=>a.id===id));
  await achievement(id,{code:'family_6',date:'2026-08-12',notes:'Fictional correction',version:3});assert.ok((await review()).snapshot.achievements.some(a=>a.id===id));
+});
+
+test('assignment ending prunes future groups, cancels solo plans, preserves past and restores only through staff',async()=>{
+ await as('staff');const student=uuid(),assignment=uuid();await call('select public.save_student($1,$2,false,0)',[student,'Stop workflow learner']);await call("select public.assign_student($1,$2,$3,'2026-07-01')",[assignment,ids.tutor,student]);
+ await as('tutor');const group=uuid(),solo=uuid();await call("select public.create_weekly_plan($1,'2026-08-01','2026-08-15',60,$2::uuid[])",[group,[student,ids.student1]]);await call("select public.create_weekly_plan($1,'2026-08-15','2026-08-15',60,$2::uuid[])",[solo,[student]]);
+ const stop=()=>call("select public.change_assignment_status($1,1,'2026-08-08','Fictional schedule change',false)",[assignment]);await stop();await stop();
+ const rows=await call('select lesson_date::text,student_ids,canceled from public.planned_occurrences where plan_id=$1 order by lesson_date',[group]);assert.ok(rows[0].student_ids.includes(student));assert.ok(rows[1].student_ids.includes(student));assert.deepEqual(rows[2].student_ids,[ids.student1]);assert.equal((await call('select canceled from public.planned_occurrences where plan_id=$1',[solo]))[0].canceled,true);
+ await assert.rejects(call("select public.change_assignment_status($1,2,null,'Mistake',true)",[assignment]),/Staff must restore/);
+ await as('other');await assert.rejects(call("select public.change_assignment_status($1,2,'2026-08-08','Unauthorized',false)",[assignment]),/access denied/);
+ await as('staff');await call("select public.change_assignment_status($1,2,null,'Mistake corrected',true)",[assignment]);assert.equal((await call('select ends_on,stopped from public.assignments where id=$1',[assignment]))[0].ends_on,null);
+ await as('tutor');assert.equal((await call('select canceled from public.planned_occurrences where plan_id=$1',[solo]))[0].canceled,true);
+});
+test('assignment cannot end before saved attendance and restoration cannot overlap a new assignment',async()=>{
+ await as('staff');const student=uuid(),assignment=uuid();await call('select public.save_student($1,$2,false,0)',[student,'Stop guard learner']);await call("select public.assign_student($1,$2,$3,'2026-07-01')",[assignment,ids.tutor,student]);
+ await as('tutor');await save(uuid(),[{student_id:student,minutes:60}],true,'2026-08-20');
+ await assert.rejects(call("select public.change_assignment_status($1,1,'2026-08-10','Check saved dates',false)",[assignment]),/Later saved records/);
+ await call("select public.change_assignment_status($1,1,'2026-08-20','Last session',false)",[assignment]);
+ await as('staff');await call("select public.assign_student($1,$2,$3,'2026-08-21')",[uuid(),ids.tutor,student]);await assert.rejects(call("select public.change_assignment_status($1,2,null,'Restore',true)",[assignment]),/overlaps/);
 });

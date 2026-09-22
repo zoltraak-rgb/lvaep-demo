@@ -343,3 +343,9 @@ test('student profile offers every achievement category and freezes a duplicate-
   doc.querySelector('#close-dialog').click();doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();assert.match(doc.querySelector('dialog').textContent,/Fictional learner goal/);
  }finally{dom.window.close();}
 });
+
+test('assignment ending requires confirmation and freezes uncertain date and reason',async()=>{
+ const original=fixture.assignments;fixture.assignments=[{id:'assignment',tutor_id:tutor,student_id:student,starts_on:'2020-01-01',version:1,stopped:false}];const calls=[];
+ const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{...fixture.assignments[0],ends_on:payload.p_end,stopped:true,version:2}};}}));
+ try{await settle();const doc=dom.window.document;doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();doc.querySelector('[data-stop-assignment]').click();const form=doc.querySelector('#end-assignment-form');doc.querySelector('#assignment-reason').value='Fictional move';form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));assert.equal(calls.length,0);doc.querySelector('#assignment-confirm').checked=true;form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.ok(doc.querySelector('#last-tutoring-date').disabled);form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);assert.match(doc.querySelector('#assignment-status').textContent,/Assignment ended/);}finally{fixture.assignments=original;dom.window.close();}
+});
