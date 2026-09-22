@@ -39,3 +39,24 @@ export function calendarDays(month) {
   const days=new Date(Date.UTC(year,number+1,0)).getUTCDate();
   return [...Array(first.getUTCDay()).fill(null),...Array.from({length:days},(_,i)=>`${month}-${String(i+1).padStart(2,'0')}`)];
 }
+
+// Separate row types keep shared teaching time from being repeated for each student.
+export function reportCsv({month,lessons,assignments,people,students,requests=[],reviewStates={},retrievedAt,exportedAt}) {
+  const columns=['Record type','Month','Records retrieved UTC','Exported UTC','Tutor','Student','Lesson date','Teaching minutes','Official attendance minutes','Pending attendance minutes','Review status'];
+  const rows=[columns];
+  const name=(items,id,fallback)=>items.find(item=>item.id===id)?.display_name||fallback;
+  const add=(type,tutor,student='',date='',teaching='',official='',pending='')=>rows.push([type,month,retrievedAt,exportedAt,name(people,tutor,'Tutor'),student,date,teaching,official,pending,reviewStates[tutor]||'Unavailable']);
+  const members=monthlyReportMembers(assignments,lessons,month);
+  for(const [tutor,studentIds] of members){
+    add('Tutor review',tutor);
+    const recorded=summarize(lessons.filter(l=>l.tutor_id===tutor),month).lessons;
+    for(const student of studentIds)if(!recorded.some(l=>l.attendance.some(a=>a.student_id===student)))add('No recorded attendance',tutor,name(students,student,'Student'));
+    for(const lesson of recorded){
+      add('Lesson',tutor,'',lesson.lesson_date,lesson.minutes);
+      for(const a of lesson.attendance||[])add('Official attendance',tutor,name(students,a.student_id,'Student'),lesson.lesson_date,'',a.minutes);
+      for(const a of lesson.pending_attendance||[])add('Pending attendance',tutor,name(requests,a.request_id,'Student awaiting connection'),lesson.lesson_date,'','',a.minutes);
+    }
+  }
+  const cell=value=>{let text=String(value??'');if(/^[\s]*[=+@-]/.test(text)||/^[\t\r\n]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};
+  return '\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n';
+}

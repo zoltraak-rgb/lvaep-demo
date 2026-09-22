@@ -18,7 +18,7 @@ function mockClient({failReads=false,rpc}={}) {
 }
 function screen(client=null) {
   const dom=new JSDOM('<div id="app"></div>',{url:'https://local.test/',runScripts:'outside-only'});
-  Object.assign(dom.window,domain,{client,rememberSession:()=>{},showAccountAccess:options=>showAccountAccess({...options,document:dom.window.document,location:dom.window.location,history:dom.window.history})});
+  Object.assign(dom.window,domain,{structuredClone,client,rememberSession:()=>{},showAccountAccess:options=>showAccountAccess({...options,document:dom.window.document,location:dom.window.location,history:dom.window.history})});
   dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
   dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
   dom.window.alert=()=>{};

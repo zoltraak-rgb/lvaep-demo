@@ -332,3 +332,29 @@ test('planned mixed attendance links exactly one lesson and rejects reuse',async
  await assert.rejects(record(uuid()),/already has a saved lesson/);
  await as('other');await assert.rejects(record(),/Plan unavailable/);
 });
+
+test('upgrading existing confirmations preserves reviewed and changed states without new tutor actions',async()=>{
+ const upgrade=new PGlite();
+ try{
+  await upgrade.exec(`create role anon;create role authenticated;create schema auth;
+   create table auth.users(id uuid primary key);
+   create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;`);
+  for(const file of ['0001_foundation.sql','0003_monthly_reviews.sql','0008_missing_student_requests.sql'])await upgrade.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
+  await upgrade.query('insert into auth.users(id) values($1)',[ids.tutor]);
+  await upgrade.query("insert into public.people(id,display_name,roles) values($1,'Upgrade tutor',array['tutor'])",[ids.tutor]);
+  await upgrade.query("insert into public.students(id,display_name) values($1,'Upgrade learner')",[ids.student1]);
+  await upgrade.query("insert into public.assignments(tutor_id,student_id,starts_on) values($1,$2,'2026-07-01')",[ids.tutor,ids.student1]);
+  for(const day of ['2026-07-05','2026-08-05']){
+   const id=uuid();await upgrade.query('insert into public.lessons(id,tutor_id,lesson_date,minutes,request_id,request_payload) values($1,$2,$3,90,$4,\'{}\')',[id,ids.tutor,day,uuid()]);
+   await upgrade.query('insert into public.attendance(lesson_id,student_id,minutes) values($1,$2,60)',[id,ids.student1]);
+  }
+  await upgrade.query("insert into public.monthly_reviews(tutor_id,month,reviewed_snapshot,confirmed_at) select $1,m,app_private.review_snapshot($1,m),'2026-09-01T12:00:00Z' from unnest(array['2026-07-01'::date,'2026-08-01'::date]) m",[ids.tutor]);
+  await upgrade.exec("update public.lessons set minutes=100,version=version+1 where lesson_date='2026-08-05'");
+  await upgrade.exec(await readFile(new URL('../supabase/migrations/0009_pending_attendance.sql',import.meta.url),'utf8'));
+  const rows=(await upgrade.query('select month::text,confirmed_at,reviewed_snapshot=app_private.review_snapshot(tutor_id,month) as unchanged,reviewed_snapshot from public.monthly_reviews order by month')).rows;
+  assert.equal(rows[0].unchanged,true);assert.equal(rows[1].unchanged,false);
+  assert.deepEqual(rows[0].reviewed_snapshot.lessons[0].pending,[]);
+  for(const row of rows)assert.equal(new Date(row.confirmed_at).toISOString(),'2026-09-01T12:00:00.000Z');
+  assert.equal((await upgrade.query("select count(*)::int n from public.audit_events where entity='monthly_review'")).rows[0].n,0);
+ }finally{await upgrade.close();}
+});
