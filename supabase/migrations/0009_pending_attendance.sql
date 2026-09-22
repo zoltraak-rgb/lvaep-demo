@@ -98,6 +98,7 @@ begin
   for entry in select * from jsonb_array_elements(snapshot->'lessons') loop
    select pa into linked from jsonb_array_elements(coalesce(entry->'pending','[]'::jsonb)) pa where pa->>'request_id'=p_request::text;
    if linked is not null then
+    entry=jsonb_set(entry,'{version}',to_jsonb((entry->>'version')::integer+1));
     entry=jsonb_set(entry,'{attendance}',(select jsonb_agg(a order by a->>'student_id') from jsonb_array_elements((entry->'attendance')||jsonb_build_array(jsonb_build_object('student_id',p_student,'minutes',linked->'minutes'))) a));
     entry=jsonb_set(entry,'{pending}',coalesce((select jsonb_agg(a order by a->>'request_id') from jsonb_array_elements(entry->'pending') a where a->>'request_id'<>p_request::text),'[]'::jsonb));
    end if;
@@ -108,6 +109,8 @@ begin
   update public.monthly_reviews set reviewed_snapshot=snapshot where tutor_id=request.tutor_id and month=old_review.month;
   insert into public.audit_events(actor_id,entity,entity_id,action,before_value,after_value) values(auth.uid(),'monthly_review',request.tutor_id,'pending_identity_connected',to_jsonb(old_review),jsonb_build_object('month',old_review.month,'reviewed_snapshot',snapshot,'confirmed_at',old_review.confirmed_at));
  end loop;
+ -- Invalidate already-open correction forms without invalidating an unchanged reviewed snapshot.
+ update public.lessons set version=version+1 where id in(select lesson_id from public.pending_attendance where request_id=p_request);
  insert into public.attendance(lesson_id,student_id,minutes) select lesson_id,p_student,minutes from public.pending_attendance where request_id=p_request;
  -- Original pending values remain in the resolution audit; official attendance stays on the same lesson.
  insert into public.audit_events(actor_id,entity,entity_id,action,before_value,after_value) values(auth.uid(),'student_request',p_request,'resolved',jsonb_build_object('request',to_jsonb(request),'attendance',(select jsonb_agg(to_jsonb(pa)) from public.pending_attendance pa where request_id=p_request)),jsonb_build_object('student_id',p_student));

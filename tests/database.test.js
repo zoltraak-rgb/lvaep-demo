@@ -31,6 +31,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0007_planned_attendance.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0008_missing_student_requests.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0009_pending_attendance.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0010_pending_corrections.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -283,4 +284,51 @@ test('staff linking preserves reviewed lessons without confirming later pending 
  await add('2026-08-30');const r=(await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r;await call("select public.confirm_month_review('2026-08-01',$1::jsonb)",[JSON.stringify(r.snapshot)]);
  await add('2026-08-31');await as('staff');await call('select public.resolve_student_request($1,$2,1)',[req2,ids.student2]);
  assert.equal((await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r.status,'updated');
+});
+
+test('pending corrections enforce durations, retry safely, warn on overlaps and retain void history',async()=>{
+ await as('tutor');const req=uuid();await call("select public.request_missing_student($1,'Correction learner','')",[req]);
+ const pending=minutes=>JSON.stringify([{request_id:req,minutes}]);
+ const record=async date=>(await call("select public.record_mixed_lesson($1,$2,90,'[]',$3::jsonb,true) as r",[uuid(),date,pending(75)]))[0].r.lesson_id;
+ const id=await record('2026-08-23');await record('2026-08-24');
+ const correct=(version,date,minutes,attendance,voided=false,allow=false)=>call("select public.correct_mixed_lesson($1,$2,$3,$4,'[]',$5,$6::jsonb,$7) as r",[id,version,date,minutes,voided,pending(attendance),allow]);
+ await assert.rejects(call("select public.correct_lesson($1,1,'2026-08-23',60,'[]',false,false)",[id]),/Invalid pending attendance duration/);
+ assert.equal((await correct(1,'2026-08-24',60,50))[0].r.status,'duplicate_warning');
+ assert.equal((await call('select version from public.lessons where id=$1',[id]))[0].version,1);
+ await as('other');await assert.rejects(correct(1,'2026-08-23',60,50),/Lesson unavailable/);
+ await as('tutor');const review=(await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r;
+ await call("select public.confirm_month_review('2026-08-01',$1::jsonb)",[JSON.stringify(review.snapshot)]);
+ await correct(1,'2026-08-23',60,50);
+ assert.equal((await correct(1,'2026-08-23',60,50))[0].r.replayed,true);
+ assert.equal((await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r.status,'updated');
+ await assert.rejects(correct(1,'2026-08-23',60,40),/Lesson changed/);
+ await assert.rejects(correct(2,'2026-08-23',60,40,true),/without other changes/);
+ await correct(2,'2026-08-23',60,50,true);
+ assert.equal((await correct(2,'2026-08-23',60,50,true))[0].r.replayed,true);
+ assert.equal((await call('select minutes from public.pending_attendance where lesson_id=$1',[id]))[0].minutes,50);
+ await as('staff');
+ const audit=(await call("select before_value,after_value from public.audit_events where entity_id=$1 and action='corrected'",[id]))[0];
+ assert.equal(audit.before_value.pending[0].minutes,75);assert.equal(audit.after_value.pending[0].minutes,50);
+});
+
+test('staff identity linking invalidates stale corrections without recounting teaching',async()=>{
+ await as('tutor');const req=uuid();await call("select public.request_missing_student($1,'Concurrent learner','')",[req]);
+ const official=JSON.stringify([{student_id:ids.student1,minutes:60}]);
+ const id=(await call('select public.record_mixed_lesson($1,\'2026-08-22\',90,$2::jsonb,$3::jsonb,true) as r',[uuid(),official,JSON.stringify([{request_id:req,minutes:45}])]))[0].r.lesson_id;
+ await as('staff');await call('select public.resolve_student_request($1,$2,1)',[req,ids.student2]);
+ await as('tutor');await assert.rejects(call("select public.correct_lesson($1,1,'2026-08-22',90,$2::jsonb,false,false)",[id,official]),/Lesson changed/);
+ assert.equal((await call('select minutes,version from public.lessons where id=$1',[id]))[0].minutes,90);
+ assert.equal((await call('select * from public.attendance where lesson_id=$1',[id])).length,2);
+});
+
+test('planned mixed attendance links exactly one lesson and rejects reuse',async()=>{
+ await as('tutor');const plan=uuid(),req=uuid(),key=uuid();
+ await call("select public.request_missing_student($1,'Planned guest','')",[req]);
+ await call("select public.create_weekly_plan($1,'2026-08-19','2026-08-19',90,$2)",[plan,[ids.student1]]);
+ const occurrence=(await call('select id from public.planned_occurrences where plan_id=$1',[plan]))[0].id;
+ const record=(request=key)=>call("select public.record_mixed_planned_lesson($1,1,$2,'2026-08-19',90,$3::jsonb,$4::jsonb,true) as r",[occurrence,request,JSON.stringify([{student_id:ids.student1,minutes:60}]),JSON.stringify([{request_id:req,minutes:45}])]);
+ const first=(await record())[0].r;assert.equal((await record())[0].r.replayed,true);
+ assert.equal((await call('select lesson_id from public.planned_occurrences where id=$1',[occurrence]))[0].lesson_id,first.lesson_id);
+ await assert.rejects(record(uuid()),/already has a saved lesson/);
+ await as('other');await assert.rejects(record(),/Plan unavailable/);
 });

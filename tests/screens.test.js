@@ -224,3 +224,42 @@ test('missing request form checks existing requests and freezes uncertain retrie
   assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].name,'request_missing_student');assert.match(doc.querySelector('#missing-status').textContent,/Request saved/);
  }finally{dom.window.close();}
 });
+
+test('pending-only lesson retries exact partial attendance and appears separately in review',async()=>{
+ fixture.student_requests=[{id:'request-one',tutor_id:tutor,display_name:'Pending <learner>',status:'pending',version:1}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{
+  calls.push({name,payload:structuredClone(payload)});
+  if(name==='get_month_review')return {data:{status:'not_reviewed',can_confirm:true,snapshot:{students:[],lessons:[{id:'pending-lesson',date:'2026-08-02',minutes:90,attendance:[],pending:[{request_id:'request-one',minutes:45}]}]}}};
+  return calls.filter(c=>c.name==='record_mixed_lesson').length===1?{error:{message:'offline'}}:{data:{status:'saved'}};
+ }}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('#open-log').click();
+  doc.querySelector('[name=pending-student]').checked=true;doc.querySelector('[data-pending]').value='45';
+  const form=doc.querySelector('#lesson-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.equal(calls[0].name,'record_mixed_lesson');assert.equal(calls[0].payload.p_pending[0].minutes,45);assert.deepEqual(calls[0].payload.p_participants,[]);
+  form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);
+  doc.querySelector('#open-review').click();await settle();
+  assert.ok(doc.querySelector('#confirm-review'));assert.match(doc.querySelector('.pending-details').textContent,/Pending <learner>/);assert.match(doc.querySelector('.pending-details').textContent,/separate from official/);
+ }finally{fixture.student_requests=[];dom.window.close();}
+});
+
+test('pending lesson correction rejects too-long attendance before sending',async()=>{
+ fixture.lessons=[{id:'pending-edit',tutor_id:tutor,lesson_date:'2026-08-02',minutes:90,version:1,attendance:[],pending_attendance:[{request_id:'req',minutes:75}]}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload});return {data:{status:'saved'}};}}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('[data-edit-lesson]').click();doc.querySelector('#edit-minutes').value='60';
+  const form=doc.querySelector('#edit-lesson-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls.length,0);
+  doc.querySelector('[data-edit-pending]').value='50';form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls[0].name,'correct_mixed_lesson');assert.equal(calls[0].payload.p_pending[0].minutes,50);
+ }finally{fixture.lessons=[];dom.window.close();}
+});
+
+test('staff connects only an explicitly verified student and freezes uncertain retry',async()=>{
+ const roles=fixture.people[0].roles;fixture.people[0].roles=['staff'];fixture.student_requests=[{id:'connect-request',tutor_id:tutor,display_name:'Pending learner',context:'Fictional library',status:'pending',version:1}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{if(name!=='resolve_student_request')return {data:{status:'not_reviewed',can_confirm:true}};calls.push(structuredClone(payload));return calls.length===1?{error:{message:'offline'}}:{data:{status:'resolved'}};}}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('#student-requests').click();await settle();doc.querySelector('[data-connect-request]').click();
+  doc.querySelector('#connect-student').value=student;const form=doc.querySelector('#connect-request-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls.length,0);
+  doc.querySelector('#verified-match').checked=true;form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.ok(doc.querySelector('#connect-student').disabled);
+  form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);assert.match(doc.querySelector('#connect-status').textContent,/Connected/);
+ }finally{fixture.people[0].roles=roles;fixture.student_requests=[];dom.window.close();}
+});

@@ -5,7 +5,7 @@ import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMem
 const app=document.querySelector('#app');
 app.addEventListener('click',event=>{const button=event.target.closest('[data-edit-lesson]');if(button)editLesson(button.dataset.editLesson);const plan=event.target.closest('[data-edit-plan]');if(plan)editPlan(plan.dataset.editPlan);const held=event.target.closest('[data-held-plan]');if(held){const o=occurrences.find(o=>o.id===held.dataset.heldPlan);if(o)logForm(o.lesson_date,o);}});
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let person,students=[],assignments=[],lessons=[],people=[],plans=[],occurrences=[];
+let person,students=[],assignments=[],lessons=[],people=[],plans=[],occurrences=[],studentRequests=[],pendingReady=false;
 let reportMonth=previousMonth();
 let requestId=crypto.randomUUID();
 const isStaff=()=>person?.roles.some(r=>['staff','admin'].includes(r));
@@ -52,11 +52,28 @@ async function allRows(makeQuery) {
     if(page.length<1000) return rows;
   }
 }
+async function loadLessons() {
+  try {
+    const rows=await allRows(()=>client.from('lessons').select('id,tutor_id,lesson_date,minutes,version,voided,attendance(student_id,minutes),pending_attendance(request_id,minutes)').order('lesson_date',{ascending:false}).order('id'));
+    studentRequests=await allRows(()=>client.from('student_requests').select('*').order('created_at').order('id'));
+    pendingReady=true;return rows;
+  } catch(error) {
+    if(!['PGRST200','PGRST205','42P01'].includes(error.code))throw error;
+    pendingReady=false;studentRequests=[];
+    return allRows(()=>client.from('lessons').select('id,tutor_id,lesson_date,minutes,version,voided,attendance(student_id,minutes)').order('lesson_date',{ascending:false}).order('id'));
+  }
+}
+const requestName=id=>studentRequests.find(r=>r.id===id)?.display_name||'Student awaiting connection';
+function pendingDetails(items) {
+  const entries=items.flatMap(l=>(l.pending_attendance||l.pending||[]).map(a=>({...a,date:l.lesson_date||l.date})));
+  if(!entries.length)return '';
+  return `<details class="pending-details"><summary>${new Set(entries.map(a=>a.request_id)).size} student connection request(s) pending · ${minutesLabel(entries.reduce((n,a)=>n+a.minutes,0))}</summary><p>Teaching time is already counted once. These attendance minutes remain separate from official student totals until staff connects the student.</p><ul class="record-list">${entries.map(a=>`<li>${escape(requestName(a.request_id))} — Waiting for staff · ${escape(a.date)} · ${minutesLabel(a.minutes)}</li>`).join('')}</ul></details>`;
+}
 async function reloadData() {
   [students,assignments,lessons,people,plans,occurrences]=await Promise.all([
     allRows(()=>client.from('students').select('*').order('display_name').order('id')),
     allRows(()=>client.from('assignments').select('*').order('id')),
-    allRows(()=>client.from('lessons').select('id,tutor_id,lesson_date,minutes,version,voided,attendance(student_id,minutes)').order('lesson_date',{ascending:false}).order('id')),
+    loadLessons(),
     allRows(()=>client.from('people').select('id,display_name,roles,active').order('display_name').order('id')),
     isTutor()?allRows(()=>client.from('lesson_plans').select('id,tutor_id,version').order('id')):[],
     isTutor()?allRows(()=>client.from('planned_occurrences').select('*').order('lesson_date').order('id')):[]
@@ -64,7 +81,7 @@ async function reloadData() {
 }
 const studentName=id=>students.find(s=>s.id===id)?.display_name||'Student';
 function lessonList(items) {
-  return items.length?`<ul class="record-list">${items.map(l=>`<li><div><strong>${l.attendance.map(a=>escape(studentName(a.student_id))).join(', ')}</strong><span>${escape(l.lesson_date)} · Recorded</span></div><strong>${minutesLabel(l.minutes)}</strong><button class="quiet" data-edit-lesson="${l.id}">View / edit</button></li>`).join('')}</ul>`:'<p class="empty">No recorded lessons in this period.</p>';
+  return items.length?`<ul class="record-list">${items.map(l=>`<li><div><strong>${[...l.attendance.map(a=>escape(studentName(a.student_id))),...(l.pending_attendance||[]).map(a=>`${escape(requestName(a.request_id))} — Waiting for staff`)].join(', ')}</strong><span>${escape(l.lesson_date)} · Recorded</span></div><strong>${minutesLabel(l.minutes)}</strong><button class="quiet" data-edit-lesson="${l.id}">View / edit</button></li>`).join('')}</ul>`:'<p class="empty">No recorded lessons in this period.</p>';
 }
 function home() {
   const mine=lessons.filter(l=>l.tutor_id===person.id&&!l.voided);
@@ -123,7 +140,7 @@ function report() {
     const data=summarize(totals.lessons.filter(l=>l.tutor_id===id),reportMonth);
     const name=people.find(p=>p.id===id)?.display_name||'Tutor';
     const studentIds=[...members.get(id)].sort((a,b)=>studentName(a).localeCompare(studentName(b)));
-    return `<details class="tutor-report" data-tutor-id="${id}" data-review-status="loading" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'} · <span class="review-state">Loading review status…</span></small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p><button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
+    return `<details class="tutor-report" data-tutor-id="${id}" data-review-status="loading" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'} · <span class="review-state">Loading review status…</span></small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p>${pendingDetails(data.lessons)}<button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
       const entries=data.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===studentId).map(a=>({id:l.id,date:l.lesson_date,minutes:a.minutes})));
       return `<details><summary>${escape(studentName(studentId))}<small class="report-row-meta">${entries.length} session${entries.length===1?'':'s'} · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))} attended</small></summary><ul class="record-list">${entries.map(e=>`<li><strong>${escape(e.date)}</strong><span>${minutesLabel(e.minutes)}</span><button class="quiet" data-edit-lesson="${e.id}">View / edit</button></li>`).join('')}</ul></details>`;
     }).join('')}</details>`;
@@ -191,11 +208,12 @@ async function reviewForm(tutorId) {
       if(attempt!==request||!container.isConnected)return;
       if(!data?.snapshot)throw Error('Unavailable');
       const snapshot=data.snapshot;
+      const pendingCount=new Set(snapshot.lessons.flatMap(l=>(l.pending||[]).map(a=>a.request_id))).size;
       const status={not_reviewed:'Not yet reviewed',reviewed:'Reviewed',updated:'Updated since review'}[data.status]||'Status unavailable';
-      container.innerHTML=`<h3>${monthLabel(month)} · ${escape(status)}</h3>${data.confirmed_at?`<p class="small">Last confirmed ${escape(new Date(data.confirmed_at).toLocaleString())}</p>`:''}${snapshot.students.map(id=>{
+      container.innerHTML=`<h3>${monthLabel(month)} · ${escape(status)}${pendingCount?` · ${pendingCount} request(s) pending`:""}</h3>${data.confirmed_at?`<p class="small">Last confirmed ${escape(new Date(data.confirmed_at).toLocaleString())}</p>`:''}${snapshot.students.map(id=>{
         const entries=snapshot.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===id).map(a=>({date:l.date,minutes:a.minutes})));
         return `<details><summary>${escape(studentName(id))}<small class="report-row-meta">${entries.length} sessions · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))}</small></summary>${entries.length?`<ul class="record-list">${entries.map(e=>`<li>${escape(e.date)} · ${minutesLabel(e.minutes)}</li>`).join('')}</ul>`:'<p>No recorded sessions.</p>'}</details>`;
-      }).join('')||'<p>No assignments or lessons for this month.</p>'}<p>Confirmation covers every student listed above, including students with no recorded sessions.</p>${tutorId===person.id&&isTutor()&&data.can_confirm&&snapshot.students.length?`<button class="primary" id="confirm-review">${data.status==='reviewed'?'Review confirmed':`Confirm ${monthLabel(month)} review`}</button>`:''}${!data.can_confirm?'<p>Review opens on the 1st of the following month, New York time.</p>':''}<p id="review-status" role="alert"></p>`;
+      }).join('')||(snapshot.lessons.length?'':'<p>No assignments or lessons for this month.</p>')}${pendingDetails(snapshot.lessons)}<p>Confirmation covers every student listed above, including students with no recorded sessions.</p>${tutorId===person.id&&isTutor()&&data.can_confirm&&(snapshot.students.length||snapshot.lessons.length)?`<button class="primary" id="confirm-review">${data.status==='reviewed'?'Review confirmed':`Confirm ${monthLabel(month)} review`}</button>`:''}${!data.can_confirm?'<p>Review opens on the 1st of the following month, New York time.</p>':''}<p id="review-status" role="alert"></p>`;
       const button=container.querySelector('#confirm-review');
       if(button){
         button.disabled=data.status==='reviewed';
@@ -222,7 +240,7 @@ async function reviewForm(tutorId) {
 }
 function logForm(initialDate=nyToday(),planned=null) {
   requestId=crypto.randomUUID();
-  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><div id="group-picker"></div><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${initialDate}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="${planned?.minutes||90}" required><fieldset><legend>Who attended?</legend><div id="participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
+  const el=dialog('Log a session',`<p class="muted">Record one lesson taught together. Only select students who attended.</p><form id="lesson-form"><div id="group-picker"></div><label for="lesson-date">Lesson date</label><input id="lesson-date" type="date" value="${initialDate}" required><label for="duration">Lesson duration, in minutes</label><input id="duration" type="number" min="1" step="1" value="${planned?.minutes||90}" required><fieldset><legend>Who attended?</legend><div id="participants"></div><div id="pending-participants"></div></fieldset><div id="duplicate-warning"></div><p id="save-status" role="status" aria-live="polite"></p><button class="primary full">Save session</button></form>`);
   const form=document.querySelector('#lesson-form');
   let savedGroups=[];
   client.from('tutor_groups').select('*').eq('archived',false).then(({data,error})=>{
@@ -250,28 +268,33 @@ function logForm(initialDate=nyToday(),planned=null) {
     const missing=planned.student_ids.some(id=>!form.querySelector(`[name=student][value="${id}"]`));
     document.querySelector('#save-status').textContent=missing?'Some planned students are no longer assigned on this date. Check participants before saving.':'Check who attended and the actual minutes, then save. Nothing has been recorded yet.';
   }
+  if(pendingReady){
+    form.querySelector('#pending-participants').innerHTML=studentRequests.filter(r=>r.tutor_id===person.id&&r.status==='pending').map(r=>`<div class="participant"><label class="check"><input type="checkbox" name="pending-student" value="${r.id}"> ${escape(r.display_name)} — Waiting for staff</label><label class="partial">Minutes <input aria-label="Pending attendance minutes for ${escape(r.display_name)}" type="number" min="1" step="1" data-pending="${r.id}" placeholder="Same as lesson"></label></div>`).join('');
+  }
   let pendingPayload=null;
   form.onsubmit=async event=>{
     event.preventDefault();
     const minutes=Number(document.querySelector('#duration').value);
-    const selected=[...form.querySelectorAll('[name=student]:checked')].map(input=>({student_id:input.value,minutes:Number(form.querySelector(`[data-student="${input.value}"]`).value)||minutes}));
+    const selected=[...form.querySelectorAll('[name=student]:checked')].map(input=>({student_id:input.value,minutes:form.querySelector(`[data-student="${input.value}"]`).value===''?minutes:Number(form.querySelector(`[data-student="${input.value}"]`).value)}));
     const status=document.querySelector('#save-status');
-    if(!selected.length) {status.textContent='Select at least one student who attended.';return;}
-    if(selected.some(s=>s.minutes>minutes||!Number.isInteger(s.minutes)||s.minutes<=0)) {status.textContent='Each attendance duration must be positive whole minutes, no more than the lesson duration.';return;}
+    const selectedPending=[...form.querySelectorAll('[name=pending-student]:checked')].map(input=>({request_id:input.value,minutes:form.querySelector(`[data-pending="${input.value}"]`).value===''?minutes:Number(form.querySelector(`[data-pending="${input.value}"]`).value)}));
+    if(!selected.length&&!selectedPending.length) {status.textContent='Select at least one student who attended.';return;}
+    if([...selected,...selectedPending].some(s=>s.minutes>minutes||!Number.isInteger(s.minutes)||s.minutes<=0)) {status.textContent='Each attendance duration must be positive whole minutes, no more than the lesson duration.';return;}
     const payload={p_request:requestId,p_date:document.querySelector('#lesson-date').value,p_minutes:minutes,p_participants:selected,p_allow_additional:form.querySelector('#additional')?.checked||false};
+    if(selectedPending.length)payload.p_pending=selectedPending;
     // Freeze the request after an uncertain response. Retrying sends the same logical save.
     if(pendingPayload) Object.assign(payload,pendingPayload);
     const button=form.querySelector('button[type=submit]')||form.querySelector('button.primary');
     button.disabled=true;status.textContent='Saving…';
     try {
-      const result=await checked(client.rpc(planned?'record_planned_lesson':'record_lesson',planned?{...payload,p_occurrence:planned.id,p_plan_version:plans.find(p=>p.id===planned.plan_id)?.version}:payload));
+      const result=await checked(client.rpc(planned?(payload.p_pending?'record_mixed_planned_lesson':'record_planned_lesson'):(payload.p_pending?'record_mixed_lesson':'record_lesson'),planned?{...payload,p_occurrence:planned.id,p_plan_version:plans.find(p=>p.id===planned.plan_id)?.version}:payload));
       pendingPayload=null;
       if(result.status==='duplicate_warning') {
         document.querySelector('#duplicate-warning').innerHTML=`<div class="notice"><strong>There is already attendance on this date.</strong><ul>${result.existing.map(l=>`<li>${escape(l.date)} · ${minutesLabel(l.minutes)}</li>`).join('')}</ul><label class="check"><input id="additional" type="checkbox"> This is another lesson. Save it separately.</label><p class="small">Or close this form to return to your recorded lessons.</p></div>`;
         status.textContent='Check the existing entries before adding another session.';button.disabled=false;return;
       }
       if(result.status!=='saved') throw new Error('Unexpected save result');
-      status.textContent='Saved.';
+      status.textContent=payload.p_pending?'Lesson saved—student connection pending.':'Saved.';
       form.querySelectorAll('input,select').forEach(input=>input.disabled=true);
       button.textContent='Saved';
       // A refresh failure must never be reported as a failed save.
@@ -288,17 +311,18 @@ function logForm(initialDate=nyToday(),planned=null) {
 }
 function editLesson(id) {
   const lesson=lessons.find(l=>l.id===id);if(!lesson||lesson.voided)return;
-  dialog('Correct a recorded lesson',`<p>Changes update the saved record and its monthly review status. Previous values stay in the change history.</p><form id="edit-lesson-form"><label for="edit-date">Lesson date</label><input id="edit-date" type="date" value="${lesson.lesson_date}" required><label for="edit-minutes">Teaching minutes</label><input id="edit-minutes" type="number" min="1" step="1" value="${lesson.minutes}" required><fieldset><legend>Recorded student attendance</legend>${lesson.attendance.map(a=>`<label>${escape(studentName(a.student_id))}<input type="number" min="1" step="1" value="${a.minutes}" data-edit-student="${a.student_id}" required></label>`).join('')}</fieldset><label class="check"><input id="void-lesson" type="checkbox">Void this mistaken lesson instead of editing it. Exclude its hours from totals and retain its history.</label><div id="edit-warning"></div><p id="edit-status" role="alert"></p><button class="primary">Save correction</button></form>`);
+  dialog('Correct a recorded lesson',`<p>Changes update the saved record and its monthly review status. Previous values stay in the change history.</p><form id="edit-lesson-form"><label for="edit-date">Lesson date</label><input id="edit-date" type="date" value="${lesson.lesson_date}" required><label for="edit-minutes">Teaching minutes</label><input id="edit-minutes" type="number" min="1" step="1" value="${lesson.minutes}" required><fieldset><legend>Recorded student attendance</legend>${lesson.attendance.map(a=>`<label>${escape(studentName(a.student_id))}<input type="number" min="1" step="1" value="${a.minutes}" data-edit-student="${a.student_id}" required></label>`).join('')}${(lesson.pending_attendance||[]).map(a=>`<label>${escape(requestName(a.request_id))} — Waiting for staff<input type="number" min="1" step="1" value="${a.minutes}" data-edit-pending="${a.request_id}" required></label>`).join('')}</fieldset><label class="check"><input id="void-lesson" type="checkbox">Void this mistaken lesson instead of editing it. Exclude its hours from totals and retain its history.</label><div id="edit-warning"></div><p id="edit-status" role="alert"></p><button class="primary">Save correction</button></form>`);
   const form=document.querySelector('#edit-lesson-form');let pending=null;
   document.querySelector('#void-lesson').onchange=event=>{form.querySelectorAll('input:not([type=checkbox])').forEach(input=>input.disabled=event.target.checked);};
   form.onsubmit=async event=>{
     event.preventDefault();const button=form.querySelector('button'),status=document.querySelector('#edit-status');if(button.disabled)return;
     const voided=document.querySelector('#void-lesson').checked;
     const payload=pending||{p_id:id,p_version:lesson.version,p_date:voided?lesson.lesson_date:document.querySelector('#edit-date').value,p_minutes:voided?lesson.minutes:Number(document.querySelector('#edit-minutes').value),p_participants:voided?lesson.attendance.map(a=>({student_id:a.student_id,minutes:a.minutes})):[...form.querySelectorAll('[data-edit-student]')].map(input=>({student_id:input.dataset.editStudent,minutes:Number(input.value)})),p_void:voided,p_allow_additional:form.querySelector('#edit-additional')?.checked||false};
-    if(payload.p_participants.some(a=>!Number.isInteger(a.minutes)||a.minutes<=0||a.minutes>payload.p_minutes)){status.textContent='Student attendance must be positive whole minutes and no longer than the lesson.';return;}
+    if(!pending&&lesson.pending_attendance?.length)payload.p_pending=voided?lesson.pending_attendance.map(a=>({request_id:a.request_id,minutes:a.minutes})):[...form.querySelectorAll('[data-edit-pending]')].map(input=>({request_id:input.dataset.editPending,minutes:Number(input.value)}));
+    if([...payload.p_participants,...(payload.p_pending||[])].some(a=>!Number.isInteger(a.minutes)||a.minutes<=0||a.minutes>payload.p_minutes)){status.textContent='Student attendance must be positive whole minutes and no longer than the lesson.';return;}
     button.disabled=true;status.textContent='Saving correction…';
     try {
-      const result=await checked(client.rpc('correct_lesson',payload));
+      const result=await checked(client.rpc(payload.p_pending?'correct_mixed_lesson':'correct_lesson',payload));
       if(result.status==='duplicate_warning'){
         pending=null;document.querySelector('#edit-warning').innerHTML=`<p>Other attendance is already recorded on this date:</p><ul>${result.existing.map(l=>`<li>${escape(l.date)} · ${minutesLabel(l.minutes)}</li>`).join('')}</ul><label class="check"><input id="edit-additional" type="checkbox">This is a separate lesson on that date.</label>`;status.textContent='Check the existing entries before saving.';button.disabled=false;return;
       }
@@ -317,8 +341,30 @@ async function staffRequests() {
   try {
     const requests=await allRows(()=>client.from('student_requests').select('*').order('created_at').order('id'));
     if(!status.isConnected)return;
-    status.innerHTML=requests.length?`<p>Review the name and context before connecting a student. Staff connection controls are still being built.</p><ul class="record-list">${requests.map(r=>`<li><div><strong>${escape(r.display_name)}</strong><span>${escape(people.find(p=>p.id===r.tutor_id)?.display_name||'Tutor')} · ${escape(r.status)}</span><p>${escape(r.context)}</p></div></li>`).join('')}</ul>`:'No missing-student requests.';
+    status.innerHTML=requests.length?`<p>Review the name and context before connecting a student. Choose a request to inspect its original lesson dates and connect a verified student.</p><ul class="record-list">${requests.map(r=>`<li><div><strong>${escape(r.display_name)}</strong><span>${escape(people.find(p=>p.id===r.tutor_id)?.display_name||'Tutor')} · ${escape(r.status)}</span><p>${escape(r.context)}</p>${r.status==='pending'&&pendingReady?`<button class="secondary" data-connect-request="${r.id}">Review connection</button>`:''}</div></li>`).join('')}</ul>`:'No missing-student requests.';
+    status.querySelectorAll('[data-connect-request]').forEach(button=>button.onclick=()=>connectRequest(requests.find(r=>r.id===button.dataset.connectRequest)));
   }catch {if(status.isConnected)status.textContent='Requests could not load. This does not mean the queue is empty. Check the connection or database setup.';}
+}
+function connectRequest(request) {
+  const linked=lessons.filter(l=>(l.pending_attendance||[]).some(a=>a.request_id===request.id));
+  dialog('Connect a student',`<p><strong>${escape(request.display_name)}</strong> · ${escape(people.find(p=>p.id===request.tutor_id)?.display_name||'Tutor')}</p><p>${escape(request.context)}</p><p>Verify the person using their context and assignment. A matching name alone is not enough.</p>${linked.length?`<ul>${linked.map(l=>`<li>${escape(l.lesson_date)} · ${minutesLabel(l.pending_attendance.find(a=>a.request_id===request.id).minutes)} attendance${l.voided?' · Voided':''}</li>`).join('')}</ul>`:'<p>No linked attendance yet.</p>'}<form id="connect-request-form"><label for="connect-student">Existing student</label><select id="connect-student" required><option value="">Choose the verified student</option>${students.map(s=>`<option value="${s.id}">${escape(s.display_name)}${s.archived?' (archived)':''}</option>`).join('')}</select><p class="small">If the student or assignment is missing, close this form and use Add student / Assign tutor in the roster first. The assignment must cover every original lesson date.</p><label class="check"><input id="verified-match" type="checkbox" required>I verified this is the correct student.</label><p id="connect-status" role="status"></p><button class="primary">Connect attendance</button></form>`);
+  const form=document.querySelector('#connect-request-form');let frozen=null;
+  form.onsubmit=async event=>{
+    event.preventDefault();const button=form.querySelector('button'),status=form.querySelector('#connect-status');if(button.disabled)return;
+    if(!form.querySelector('#verified-match').checked)return;
+    const payload=frozen||{p_request:request.id,p_student:form.querySelector('#connect-student').value,p_version:request.version};
+    button.disabled=true;status.textContent='Connecting…';
+    try{
+      await checked(client.rpc('resolve_student_request',payload));
+      frozen=null;status.textContent='Connected. Teaching time and original lesson dates are unchanged.';
+      form.querySelectorAll('input,select').forEach(input=>input.disabled=true);button.textContent='Connected';
+      try{await reloadData();}catch{status.textContent='Connected. Reload the page to refresh saved records.';}
+    }catch(error){
+      if(!error.code){frozen=payload;form.querySelectorAll('input,select').forEach(input=>input.disabled=true);status.textContent='Connection not confirmed. Retry checks the same student.';button.textContent='Retry connection';}
+      else status.textContent=error.message||'Connection could not be saved.';
+      button.disabled=false;
+    }
+  };
 }
 async function missingStudentForm() {
   dialog('Missing students', '<p id="request-loading" role="status">Loading your existing requests…</p>');
@@ -327,7 +373,7 @@ async function missingStudentForm() {
   try {requests=await allRows(()=>client.from('student_requests').select('*').eq('tutor_id',person.id).order('created_at').order('id'));}
   catch {if(loading.isConnected)loading.textContent='Requests could not load. Check your connection or ask the administrator to finish setup. No new request was created.';return;}
   if(!loading.isConnected)return;
-  dialog('Missing students',`<p>Check your existing requests first. Each request can be reused; matching names do not necessarily mean the same person.</p>${requests.length?`<ul class="record-list">${requests.map(r=>`<li><div><strong>${escape(r.display_name)}</strong><span>${r.status==='pending'?'Waiting for staff':escape(r.status)}</span></div></li>`).join('')}</ul>`:'<p>No requests yet.</p>'}<p class="small">Pending lesson recording is still being connected. Submitting this request does not record attendance.</p><form id="missing-form"><label for="missing-name">Student name</label><input id="missing-name" maxlength="120" required><label for="missing-context">Brief context (optional)</label><textarea id="missing-context" maxlength="1000" placeholder="For example, where you met. Do not include sensitive personal details."></textarea><p id="missing-status" role="alert"></p><button class="primary">Send request to staff</button></form>`);
+  dialog('Missing students',`<p>Check your existing requests first. Each request can be reused; matching names do not necessarily mean the same person.</p>${requests.length?`<ul class="record-list">${requests.map(r=>`<li><div><strong>${escape(r.display_name)}</strong><span>${r.status==='pending'?'Waiting for staff':escape(r.status)}</span></div></li>`).join('')}</ul>`:'<p>No requests yet.</p>'}<p class="small">Submitting this request does not record attendance. Once saved, select the student marked Waiting for staff when logging a lesson.</p><form id="missing-form"><label for="missing-name">Student name</label><input id="missing-name" maxlength="120" required><label for="missing-context">Brief context (optional)</label><textarea id="missing-context" maxlength="1000" placeholder="For example, where you met. Do not include sensitive personal details."></textarea><p id="missing-status" role="alert"></p><button class="primary">Send request to staff</button></form>`);
   const id=crypto.randomUUID(),form=document.querySelector('#missing-form'),button=form.querySelector('button'),status=document.querySelector('#missing-status');
   let pending;
   form.onsubmit=async event=>{
