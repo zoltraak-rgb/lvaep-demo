@@ -5,3 +5,17 @@
 .report-row-meta{display:block;font-weight:400;color:var(--muted);font-size:.85rem;margin-top:6px}.tutor-report[hidden]{display:none}#report-search{margin-bottom:20px}#program-totals .metric-grid{margin-top:16px}
 
 .calendar-switch{display:flex;gap:10px;margin-bottom:16px}.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.weekday{text-align:center;font-size:.75rem;padding:8px 0}.calendar-date{min-height:64px;min-width:0;background:#f3f6ef;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 2px}.calendar-date strong,.calendar-date small{display:block}.calendar-date small{font-size:.65rem;margin-top:4px}.calendar-date[aria-current=date]{border:2px solid var(--green)}.calendar-date[aria-pressed=true]{background:var(--green);color:white}.calendar-date:focus-visible{outline:3px solid #946500;outline-offset:2px}#calendar-day{margin-top:18px}@media(max-width:480px){.calendar-date{min-height:52px}.calendar-grid{gap:2px}.calendar-date small{font-size:.6rem}}
+
+.report-actions{display:flex;flex-wrap:wrap;gap:10px}.hours-chart{list-style:none;padding:0}.hours-chart li{display:grid;grid-template-columns:minmax(100px,1fr) 2fr auto;gap:12px;align-items:center;padding:8px 0;font-size:.85rem}.hours-track{height:12px;background:#e6ece4;border-radius:3px;overflow:hidden}.hours-track span{display:block;height:100%;background:var(--green)}#printable-report{display:none}
+@media print{
+ @page{size:auto;margin:16mm}
+ body{background:#fff;color:#111;font-size:10pt}
+ body>*:not(#printable-report){display:none!important}
+ #printable-report{display:block}#printable-report h1{font-size:20pt}#printable-report h3{font-size:12pt}
+ #printable-report p{font-size:9pt}#printable-report details{display:block;border-top:1px solid #bbb;padding:8px 0}
+ #printable-report summary{display:block;break-after:avoid}#printable-report summary::marker{content:''}
+ #printable-report .record-list li{padding:6px 0;break-inside:avoid}#printable-report .metric-grid{display:flex;gap:16px}
+ #printable-report .metric{background:white;padding:8px}#printable-report .metric strong{font-size:14pt}
+ #printable-report .hours-track span{background:#444;print-color-adjust:exact}#printable-report .hours-chart li{break-inside:avoid}
+}
+@media(max-width:480px){.hours-chart li{grid-template-columns:1fr auto}.hours-track{grid-column:1/-1;grid-row:auto}.hours-chart strong{grid-column:2;grid-row:auto}}

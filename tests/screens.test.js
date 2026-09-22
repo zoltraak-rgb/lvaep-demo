@@ -263,3 +263,21 @@ test('staff connects only an explicitly verified student and freezes uncertain r
   form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);assert.match(doc.querySelector('#connect-status').textContent,/Connected/);
  }finally{fixture.people[0].roles=roles;fixture.student_requests=[];dom.window.close();}
 });
+
+test('print snapshot includes filtered-out tutors and expanded details without editing controls',async()=>{
+ const roles=fixture.people[0].roles;fixture.people[0].roles=['staff'];
+ fixture.lessons=[{id:'print-lesson',tutor_id:tutor,lesson_date:domain.previousMonth()+'-05',minutes:90,attendance:[{student_id:student,minutes:45}]}];
+ const dom=screen(mockClient({rpc:async()=>({data:{status:'updated',can_confirm:true}})}));
+ try{
+  await settle();const doc=dom.window.document;
+  assert.match(doc.querySelector('#teaching-chart').textContent,/1 hr 30 min/);
+  doc.querySelector('#report-search').value='no match';doc.querySelector('#report-search').dispatchEvent(new dom.window.Event('input'));
+  assert.equal(doc.querySelector('.tutor-report').hidden,true);
+  let printed=false;dom.window.print=()=>{printed=true;};doc.querySelector('#print-report').click();
+  const snapshot=doc.querySelector('#printable-report');assert.equal(printed,true);assert.ok(snapshot);
+  assert.equal(snapshot.querySelector('.tutor-report').hidden,false);assert.ok([...snapshot.querySelectorAll('details')].every(d=>d.open));assert.equal(snapshot.querySelector('button'),null);
+  assert.match(snapshot.textContent,/45 min/);assert.match(snapshot.textContent,/Updated since review/);assert.match(snapshot.textContent,/Exported/);assert.match(snapshot.textContent,/search filters do not apply/);
+  assert.equal(snapshot.querySelector('script'),null);
+  dom.window.dispatchEvent(new dom.window.Event('afterprint'));assert.equal(doc.querySelector('#printable-report'),null);
+ }finally{fixture.people[0].roles=roles;fixture.lessons=[];dom.window.close();}
+});
