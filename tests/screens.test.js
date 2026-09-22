@@ -193,3 +193,24 @@ test('held plan prefills confirmation and uses linked save without automatically
   assert.equal(calls[0].name,'record_planned_lesson');assert.equal(calls[0].payload.p_occurrence,'held-occurrence');assert.equal(calls[0].payload.p_plan_version,2);assert.equal(calls[0].payload.p_participants[0].minutes,45);
  }finally {dom.window.close();fixture.lesson_plans=[];fixture.planned_occurrences=[];}
 });
+
+test('staff review filter preserves unknown status and ignores stale month responses',async()=>{
+ const original=fixture.people[0].roles;fixture.people[0].roles=['staff'];
+ const requests=[];const dom=screen(mockClient({rpc:(name,payload)=>new Promise(resolve=>requests.push({payload,resolve}))}));
+ try {
+  await settle();const doc=dom.window.document;assert.equal(requests.length,1);
+  const month=doc.querySelector('#report-month');month.value='2026-07';month.dispatchEvent(new dom.window.Event('change'));await settle();
+  requests[1].resolve({data:{status:'updated',can_confirm:true}});await settle();
+  requests[0].resolve({data:{status:'reviewed',can_confirm:true}});await settle();
+  assert.match(doc.querySelector('.review-state').textContent,/Updated since review/);
+  const filter=doc.querySelector('#needs-review');filter.checked=true;filter.dispatchEvent(new dom.window.Event('change'));assert.equal(doc.querySelector('.tutor-report').hidden,false);
+  month.value='2026-06';month.dispatchEvent(new dom.window.Event('change'));await settle();
+  requests[2].resolve({error:{message:'offline'}});await settle();
+  const unknown=doc.querySelector('#needs-review');unknown.checked=true;unknown.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(doc.querySelector('.tutor-report').hidden,false);assert.match(doc.querySelector('.review-state').textContent,/unavailable/);
+  month.value='2026-05';month.dispatchEvent(new dom.window.Event('change'));await settle();
+  requests[3].resolve({data:{status:'reviewed',can_confirm:true}});await settle();
+  const complete=doc.querySelector('#needs-review');complete.checked=true;complete.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(doc.querySelector('.tutor-report').hidden,true);assert.match(doc.querySelector('#review-counts').textContent,/1 reviewed/);
+ }finally{fixture.people[0].roles=original;dom.window.close();}
+});

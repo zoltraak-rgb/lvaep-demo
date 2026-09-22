@@ -117,21 +117,56 @@ function report() {
   const members=monthlyReportMembers(assignments,lessons,reportMonth);
   const tutorIds=[...members.keys()].sort((a,b)=>(people.find(p=>p.id===a)?.display_name||'').localeCompare(people.find(p=>p.id===b)?.display_name||''));
   const year=Number(reportMonth.slice(0,4)), fiscalStart=Number(reportMonth.slice(5))>=7?year:year-1;
-  document.querySelector('#report-content').innerHTML=`<p class="muted">${monthLabel(reportMonth)} · July ${fiscalStart}–June ${fiscalStart+1}<br>Records retrieved ${new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</p><label for="report-search">Find a tutor or student</label><input id="report-search" type="search" placeholder="Search by name"><div id="tutor-reports">${tutorIds.map(id=>{
+  document.querySelector('#report-content').innerHTML=`<p class="muted">${monthLabel(reportMonth)} · July ${fiscalStart}–June ${fiscalStart+1}<br>Records retrieved ${new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</p><label for="report-search">Find a tutor or student</label><input id="report-search" type="search" placeholder="Search by name"><label class="check"><input id="needs-review" type="checkbox">Needs review</label><p id="review-loading" class="small" role="status">Loading review status…</p><div id="tutor-reports">${tutorIds.map(id=>{
     const data=summarize(totals.lessons.filter(l=>l.tutor_id===id),reportMonth);
     const name=people.find(p=>p.id===id)?.display_name||'Tutor';
     const studentIds=[...members.get(id)].sort((a,b)=>studentName(a).localeCompare(studentName(b)));
-    return `<details class="tutor-report" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'}</small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p><button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
+    return `<details class="tutor-report" data-tutor-id="${id}" data-review-status="loading" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'} · <span class="review-state">Loading review status…</span></small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p><button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
       const entries=data.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===studentId).map(a=>({id:l.id,date:l.lesson_date,minutes:a.minutes})));
       return `<details><summary>${escape(studentName(studentId))}<small class="report-row-meta">${entries.length} session${entries.length===1?'':'s'} · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))} attended</small></summary><ul class="record-list">${entries.map(e=>`<li><strong>${escape(e.date)}</strong><span>${minutesLabel(e.minutes)}</span><button class="quiet" data-edit-lesson="${e.id}">View / edit</button></li>`).join('')}</ul></details>`;
     }).join('')}</details>`;
-  }).join('')||'<p class="empty">No tutor assignments or recorded lessons for this month.</p>'}</div><p id="report-no-match" class="empty" hidden>No tutor reports match that name.</p><details id="program-totals"><summary>Program totals</summary><div class="metric-grid"><div class="metric"><span>Total hours taught</span><strong>${minutesLabel(totals.teachingMinutes)}</strong></div><div class="metric"><span>Distinct students attending</span><strong>${totals.studentCount}</strong></div><div class="metric"><span>Student attendance time</span><strong>${minutesLabel(totals.studentMinutes)}</strong></div></div><p class="small muted">Totals cover the whole month, regardless of search. Each shared lesson counts once toward teaching time. Student attendance adds each learner’s actual time.</p></details>`;
+  }).join('')||'<p class="empty">No tutor assignments or recorded lessons for this month.</p>'}</div><p id="report-no-match" class="empty" hidden>No tutor reports match these filters.</p><details id="program-totals"><summary>Program totals</summary><div class="metric-grid"><div class="metric"><span>Total hours taught</span><strong>${minutesLabel(totals.teachingMinutes)}</strong></div><div class="metric"><span>Distinct students attending</span><strong>${totals.studentCount}</strong></div><div class="metric"><span>Student attendance time</span><strong>${minutesLabel(totals.studentMinutes)}</strong></div></div><p id="review-counts" class="small"></p><p class="small muted">Totals cover the whole month, regardless of search or review filter. Each shared lesson counts once toward teaching time. Student attendance adds each learner’s actual time.</p></details>`;
   document.querySelectorAll('.check-review').forEach(button=>button.onclick=()=>reviewForm(button.dataset.tutor));
-  document.querySelector('#report-search').oninput=event=>{
-    const query=event.target.value.trim().toLowerCase();let matches=0;
-    document.querySelectorAll('.tutor-report').forEach(row=>{row.hidden=!row.dataset.search.includes(query);if(!row.hidden)matches++;});
-    document.querySelector('#report-no-match').hidden=!query||matches>0;
+  const container=document.querySelector('#tutor-reports');
+  const search=document.querySelector('#report-search'),needsReview=document.querySelector('#needs-review');
+  const applyFilter=()=>{
+    if(!container.isConnected)return;
+    const query=search.value.trim().toLowerCase();let matches=0;
+    container.querySelectorAll('.tutor-report').forEach(row=>{
+      row.hidden=!row.dataset.search.includes(query)||(needsReview.checked&&['reviewed','not_open'].includes(row.dataset.reviewStatus));
+      if(!row.hidden)matches++;
+    });
+    document.querySelector('#report-no-match').hidden=(!query&&!needsReview.checked)||matches>0;
   };
+  search.oninput=applyFilter;needsReview.onchange=applyFilter;
+  const month=reportMonth;
+  const rows=[...container.querySelectorAll('.tutor-report')];
+  const counts=document.querySelector('#review-counts'),loading=document.querySelector('#review-loading');
+  // Bound requests to four at a time; stale month responses cannot update replacement DOM.
+  let next=0;
+  const worker=async()=>{
+    while(next<rows.length){
+      const row=rows[next++];
+      try {
+        const review=await checked(client.rpc('get_month_review',{p_tutor:row.dataset.tutorId,p_month:`${month}-01`}));
+        if(!container.isConnected)return;
+        if(!review||!['reviewed','updated','not_reviewed'].includes(review.status))throw Error('Unavailable');
+        const state=!review.can_confirm?'not_open':review.status;
+        row.dataset.reviewStatus=state;
+        row.querySelector('.review-state').textContent={reviewed:'Reviewed',updated:'Updated since review',not_reviewed:'Not yet reviewed',not_open:'Review opens next month'}[state];
+      }catch {
+        if(!container.isConnected)return;
+        row.dataset.reviewStatus='unknown';row.querySelector('.review-state').textContent='Review status unavailable';
+      }
+      applyFilter();
+    }
+  };
+  Promise.all(Array.from({length:Math.min(4,rows.length)},worker)).then(()=>{
+    if(!container.isConnected)return;
+    const count=state=>rows.filter(row=>row.dataset.reviewStatus===state).length;
+    counts.textContent=`${count('reviewed')} reviewed · ${count('not_reviewed')} not reviewed · ${count('updated')} updated since review · ${count('not_open')} not yet open · ${count('unknown')} unavailable`;
+    loading.textContent=count('unknown')?'Some review statuses could not load. They remain visible under Needs review; refresh saved records to retry.':'';
+  });
 }
 
 function dialog(title,body) {
