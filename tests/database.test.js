@@ -29,6 +29,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0005_recurring_plans.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0006_lesson_corrections.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0007_planned_attendance.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0008_missing_student_requests.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -234,4 +235,16 @@ test('planned attendance is atomic, retry-safe, owned and protected from schedul
  await assert.rejects(call("select public.change_plan_occurrence($1,'one',null,null,null,true,2)",[occurrences[1].id]),/recorded attendance/);
  await call("select public.change_plan_occurrence($1,'one',null,null,null,true,2)",[occurrences[0].id]);
  await assert.rejects(call("select public.record_planned_lesson($1,3,$2,'2026-08-03',90,$3::jsonb,true)",[occurrences[0].id,uuid(),JSON.stringify(participants('student1'))]),/canceled/);
+});
+
+test('missing student requests are private, retry-safe and never merge by name',async()=>{
+ await as('tutor');const id=uuid();
+ const request=(key=id,name='Same Name')=>call('select public.request_missing_student($1,$2,$3) as r',[key,name,'Met at fictional library']);
+ await request();await request();await request(uuid());
+ assert.equal((await call('select * from public.student_requests')).length,2);
+ await assert.rejects(request(id,'Changed'),/retry does not match/);
+ await assert.rejects(call("update public.student_requests set status='rejected'"),/permission denied/);
+ await as('other');assert.equal((await call('select * from public.student_requests')).length,0);await assert.rejects(request(),/retry does not match/);
+ await as('staff');assert.equal((await call('select * from public.student_requests')).length,2);await assert.rejects(request(uuid()),/Tutor access required/);
+ await as('anon');await assert.rejects(call('select * from public.student_requests'),/permission denied/);await assert.rejects(request(uuid()),/permission denied/);
 });

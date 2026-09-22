@@ -7,7 +7,7 @@ import * as domain from '../src/domain.js';
 const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 const tutor='00000000-0000-4000-8000-000000000001';
 const student='00000000-0000-4000-8000-000000000002';
-const fixture={lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
+const fixture={student_requests:[],lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
 function mockClient({failReads=false,rpc}={}) {
   return {auth:{getUser:async()=>({data:{user:{id:tutor}}}),onAuthStateChange:()=>{},signOut:async()=>({})},
     from(table){
@@ -213,4 +213,14 @@ test('staff review filter preserves unknown status and ignores stale month respo
   const complete=doc.querySelector('#needs-review');complete.checked=true;complete.dispatchEvent(new dom.window.Event('change'));
   assert.equal(doc.querySelector('.tutor-report').hidden,true);assert.match(doc.querySelector('#review-counts').textContent,/1 reviewed/);
  }finally{fixture.people[0].roles=original;dom.window.close();}
+});
+
+test('missing request form checks existing requests and freezes uncertain retries',async()=>{
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{id:payload.p_id}};}}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('#missing-student').click();await settle();
+  doc.querySelector('#missing-name').value='Fictional learner';const form=doc.querySelector('#missing-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.ok(doc.querySelector('#missing-name').disabled);form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].name,'request_missing_student');assert.match(doc.querySelector('#missing-status').textContent,/Request saved/);
+ }finally{dom.window.close();}
 });
