@@ -296,3 +296,17 @@ test('staff history renders original values as text and tutors have no history c
  const dom=screen(mockClient());try{await settle();const doc=dom.window.document;doc.querySelector('#open-history').click();await settle();assert.match(doc.querySelector('#history-records').textContent,/Old/);assert.match(doc.querySelector('#history-records').textContent,/<script>unsafe/);assert.equal(doc.querySelector('script'),null);assert.equal(doc.querySelector('#history-more').hidden,true);}finally{dom.window.close();fixture.people[0].roles=roles;delete fixture.audit_events;}
  const tutorScreen=screen(mockClient());await settle();assert.equal(tutorScreen.window.document.querySelector('#open-history'),null);tutorScreen.window.close();
 });
+
+test('group management reuses identity and version without saving any attendance',async()=>{
+ fixture.tutor_groups=[{id:'existing-group',name:'Library',student_ids:[student],archived:false,version:3}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{id:'existing-group'}};}}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('#manage-groups').click();await settle();doc.querySelector('[data-group-id]').click();doc.querySelector('#group-name').value='Tuesday group';doc.querySelector('#group-archived').checked=true;
+  const form=doc.querySelector('#group-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.ok(doc.querySelector('#group-name').disabled);form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].name,'save_tutor_group');assert.equal(calls[0].payload.p_id,'existing-group');assert.equal(calls[0].payload.p_version,3);assert.equal(calls[0].payload.p_archived,true);
+ }finally{delete fixture.tutor_groups;dom.window.close();}
+});
+test('today plans remain a confirmation shortcut and exclude canceled occurrences',async()=>{
+ fixture.lesson_plans=[{id:'today-plan',tutor_id:tutor,version:1}];fixture.planned_occurrences=[{id:'today-one',plan_id:'today-plan',lesson_date:domain.nyToday(),minutes:90,student_ids:[student],canceled:false,lesson_id:null},{id:'today-cancel',plan_id:'today-plan',lesson_date:domain.nyToday(),minutes:90,student_ids:[student],canceled:true,lesson_id:null}];
+ const calls=[];const dom=screen(mockClient({rpc:async(...args)=>{calls.push(args);return {data:{status:'saved'}};}}));try{await settle();const doc=dom.window.document;const today=doc.querySelector('#today-plans');assert.ok(today);assert.equal(today.querySelector('[data-held-plan="today-cancel"]'),null);today.querySelector('[data-held-plan="today-one"]').click();await settle();assert.equal(calls.length,0);assert.equal(doc.querySelector('#lesson-date').value,domain.nyToday());assert.equal(doc.querySelector('#duration').value,'90');}finally{fixture.lesson_plans=[];fixture.planned_occurrences=[];dom.window.close();}
+});
