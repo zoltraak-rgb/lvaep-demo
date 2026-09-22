@@ -3,9 +3,9 @@ import {showAccountAccess} from './account-access.js';
 import {client,rememberSession} from './auth.js';
 import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers,calendarDays} from './domain.js';
 const app=document.querySelector('#app');
-app.addEventListener('click',event=>{const button=event.target.closest('[data-edit-lesson]');if(button)editLesson(button.dataset.editLesson);});
+app.addEventListener('click',event=>{const button=event.target.closest('[data-edit-lesson]');if(button)editLesson(button.dataset.editLesson);const plan=event.target.closest('[data-edit-plan]');if(plan)editPlan(plan.dataset.editPlan);});
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let person,students=[],assignments=[],lessons=[],people=[];
+let person,students=[],assignments=[],lessons=[],people=[],plans=[],occurrences=[];
 let reportMonth=previousMonth();
 let requestId=crypto.randomUUID();
 const isStaff=()=>person?.roles.some(r=>['staff','admin'].includes(r));
@@ -15,7 +15,7 @@ function shell(body) {
   document.querySelector('#signout')?.addEventListener('click',async()=>{
     const {error}=await client.auth.signOut({scope:'local'});
     if(error) { alert('Sign out could not finish. Please try again.'); return; }
-    person=null; students=[]; assignments=[]; lessons=[]; people=[]; login();
+    person=null; students=[]; assignments=[]; lessons=[]; people=[]; plans=[]; occurrences=[]; login();
   });
 }
 function login() {
@@ -53,11 +53,13 @@ async function allRows(makeQuery) {
   }
 }
 async function reloadData() {
-  [students,assignments,lessons,people]=await Promise.all([
+  [students,assignments,lessons,people,plans,occurrences]=await Promise.all([
     allRows(()=>client.from('students').select('*').order('display_name').order('id')),
     allRows(()=>client.from('assignments').select('*').order('id')),
     allRows(()=>client.from('lessons').select('id,tutor_id,lesson_date,minutes,version,voided,attendance(student_id,minutes)').order('lesson_date',{ascending:false}).order('id')),
-    allRows(()=>client.from('people').select('id,display_name,roles,active').order('display_name').order('id'))
+    allRows(()=>client.from('people').select('id,display_name,roles,active').order('display_name').order('id')),
+    isTutor()?allRows(()=>client.from('lesson_plans').select('id,tutor_id,version').order('id')):[],
+    isTutor()?allRows(()=>client.from('planned_occurrences').select('*').order('lesson_date').order('id')):[]
   ]);
 }
 const studentName=id=>students.find(s=>s.id===id)?.display_name||'Student';
@@ -78,20 +80,22 @@ function home() {
       const month=document.querySelector('#calendar-month').value;
       if(!calendarDays(month).length)return;
       const items=summarize(mine,month).lessons;
+      const planned=occurrences.filter(o=>o.lesson_date.startsWith(month));
       const records=document.querySelector('#calendar-records');
       document.querySelector('#calendar-day').innerHTML='';
       document.querySelector('#calendar-grid-view').setAttribute('aria-pressed',String(view==='month'));
       document.querySelector('#calendar-list-view').setAttribute('aria-pressed',String(view==='list'));
-      if(view==='list'){records.innerHTML=lessonList(items);return;}
-      records.innerHTML=`<p class="small muted">Recorded lessons only. Select a day for details or to log a lesson.</p><div class="calendar-grid" aria-label="${monthLabel(month)}">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=>`<span class="weekday">${day}</span>`).join('')}${calendarDays(month).map(date=>{
+      if(view==='list'){records.innerHTML=plannedList(planned)+lessonList(items);return;}
+      records.innerHTML=`<p class="small muted">Plans do not count as attendance. Select a day for planned and recorded lessons.</p><div class="calendar-grid" aria-label="${monthLabel(month)}">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day=>`<span class="weekday">${day}</span>`).join('')}${calendarDays(month).map(date=>{
         if(!date)return '<span aria-hidden="true"></span>';
         const count=items.filter(l=>l.lesson_date===date).length;
-        return `<button class="calendar-date" data-date="${date}" aria-label="${date}, ${count} recorded lesson${count===1?'':'s'}" ${date===nyToday()?'aria-current="date"':''}><strong>${Number(date.slice(-2))}</strong>${count?`<small>${count} saved</small>`:''}</button>`;
+        const scheduled=planned.filter(o=>o.lesson_date===date&&!o.canceled).length;
+        return `<button class="calendar-date" data-date="${date}" aria-label="${date}, ${count} recorded lesson${count===1?'':'s'}, ${scheduled} planned" ${date===nyToday()?'aria-current="date"':''}><strong>${Number(date.slice(-2))}</strong>${count?`<small>${count} saved</small>`:''}${scheduled?`<small>${scheduled} planned</small>`:''}</button>`;
       }).join('')}</div>`;
       records.querySelectorAll('[data-date]').forEach(button=>button.onclick=()=>{
         records.querySelectorAll('[data-date]').forEach(day=>day.setAttribute('aria-pressed',String(day===button)));
         const date=button.dataset.date;
-        document.querySelector('#calendar-day').innerHTML=`<h3>${escape(date)}</h3>${lessonList(items.filter(l=>l.lesson_date===date))}<button id="log-calendar-day" class="secondary">Log a lesson on this date</button>`;
+        document.querySelector('#calendar-day').innerHTML=`<h3>${escape(date)}</h3>${plannedList(planned.filter(o=>o.lesson_date===date))}${lessonList(items.filter(l=>l.lesson_date===date))}<button id="log-calendar-day" class="secondary">Log a lesson on this date</button>`;
         document.querySelector('#log-calendar-day').onclick=()=>logForm(date);
       });
     };
@@ -265,6 +269,30 @@ function editLesson(id) {
     }
   };
 }
+function plannedList(items) {
+  return items.length?`<h3>Planned lessons</h3><ul class="record-list">${items.map(o=>`<li><div><strong>${o.student_ids.map(id=>escape(studentName(id))).join(', ')}</strong><span>${escape(o.lesson_date)} · ${o.canceled?'Canceled':'Planned'} · ${minutesLabel(o.minutes)}</span></div>${o.canceled?'':`<button class="quiet" data-edit-plan="${o.id}">Change plan</button>`}</li>`).join('')}</ul>`:'';
+}
+function editPlan(id) {
+  const occurrence=occurrences.find(o=>o.id===id),plan=plans.find(p=>p.id===occurrence?.plan_id);
+  if(!occurrence||!plan)return;
+  dialog('Change planned lesson',`<p>Saved attendance will not change. Moving this and future lessons shifts their dates by the same number of days.</p><form id="edit-plan"><label for="plan-scope">Apply to</label><select id="plan-scope"><option value="one">This lesson only</option><option value="future">This and future lessons</option></select><label for="occurrence-date">Lesson date</label><input id="occurrence-date" type="date" value="${occurrence.lesson_date}" required><label for="occurrence-minutes">Usual duration, in minutes</label><input id="occurrence-minutes" type="number" min="1" step="1" value="${occurrence.minutes}" required><p>Students: ${occurrence.student_ids.map(id=>escape(studentName(id))).join(', ')}</p><label class="check"><input id="cancel-plan" type="checkbox">Cancel the selected planned lesson(s)</label><p id="change-plan-status" role="alert"></p><button class="primary">Save plan changes</button></form>`);
+  const form=document.querySelector('#edit-plan'),button=form.querySelector('button'),status=document.querySelector('#change-plan-status');
+  form.onsubmit=async event=>{
+    event.preventDefault();if(button.disabled)return;
+    const payload={p_occurrence:id,p_scope:document.querySelector('#plan-scope').value,p_new_date:document.querySelector('#occurrence-date').value,p_minutes:Number(document.querySelector('#occurrence-minutes').value),p_students:occurrence.student_ids,p_cancel:document.querySelector('#cancel-plan').checked,p_version:plan.version};
+    button.disabled=true;status.textContent='Saving…';
+    let saved=false;
+    try {
+      await checked(client.rpc('change_plan_occurrence',payload));saved=true;
+      await reloadData();home();
+    } catch(error) {
+      status.textContent=saved?'Changes saved, but the calendar could not refresh. Reload before editing again.':!error.code?'Save not confirmed. Reload and check the plan before editing again.':error.message;
+      // Do not repeat a potentially applied date shift after an uncertain response.
+      if(saved||!error.code)form.querySelectorAll('input,select').forEach(input=>input.disabled=true);
+      else button.disabled=false;
+    }
+  };
+}
 function planForm() {
   const id=crypto.randomUUID();
   const assigned=new Set(assignments.filter(a=>a.tutor_id===person.id).map(a=>a.student_id));
@@ -288,6 +316,7 @@ function planForm() {
       if(!result?.id)throw Error('Unconfirmed');
       form.querySelectorAll('input').forEach(input=>input.disabled=true);
       status.textContent='Plan saved. No attendance has been recorded.';button.textContent='Saved';
+      try {await reloadData();home();} catch {status.textContent='Plan saved, but the calendar could not refresh. Reload to see it.';}
     }catch(error){
       if(!error.code){pending=payload;form.querySelectorAll('input').forEach(input=>input.disabled=true);status.textContent='Plan save not confirmed. Retry will check the same plan without creating another.';}
       else status.textContent=error.message||'Could not save the plan. Check assignments and try again.';

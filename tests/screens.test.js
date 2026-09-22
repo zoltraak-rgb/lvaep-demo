@@ -7,7 +7,7 @@ import * as domain from '../src/domain.js';
 const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 const tutor='00000000-0000-4000-8000-000000000001';
 const student='00000000-0000-4000-8000-000000000002';
-const fixture={people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
+const fixture={lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
 function mockClient({failReads=false,rpc}={}) {
   return {auth:{getUser:async()=>({data:{user:{id:tutor}}}),onAuthStateChange:()=>{},signOut:async()=>({})},
     from(table){
@@ -145,7 +145,8 @@ test('weekly plan preview and retry preserve one plan without recording attendan
     assert.equal(doc.querySelector('#plan-start').disabled,true);
     form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
     assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].name,'create_weekly_plan');
-    assert.match(doc.querySelector('#plan-status').textContent,/No attendance has been recorded/);
+    assert.ok(doc.querySelector('#calendar-records'));
+    assert.equal(fixture.lessons.length,0);
   }finally{dom.window.close();}
 });
 test('uncertain correction freezes values and retries the same versioned update',async()=>{
@@ -159,4 +160,24 @@ test('uncertain correction freezes values and retries the same versioned update'
   form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
   assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].p_version,1);assert.equal(calls[0].p_participants[0].minutes,45);
  }finally{dom.window.close();fixture.lessons=[];}
+});
+
+test('planned calendar separates attendance and prevents blind repeat after uncertain shift',async()=>{
+ const month=domain.nyToday().slice(0,7);
+ fixture.lesson_plans=[{id:'plan-test',tutor_id:tutor,version:3}];
+ fixture.planned_occurrences=[{id:'occ-test',plan_id:'plan-test',lesson_date:`${month}-12`,minutes:90,student_ids:[student],canceled:false}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload});return {error:{message:'offline'}};}}));
+ try {
+  await settle();const doc=dom.window.document;
+  assert.match(doc.querySelector('[data-date="'+month+'-12"]').textContent,/1 planned/);
+  doc.querySelector('#calendar-list-view').click();
+  assert.match(doc.querySelector('#calendar-records').textContent,/Planned/);
+  assert.match(doc.querySelector('#calendar-records').textContent,/No recorded lessons/);
+  doc.querySelector('[data-edit-plan]').click();doc.querySelector('#plan-scope').value='future';
+  const form=doc.querySelector('#edit-plan');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.equal(calls[0].name,'change_plan_occurrence');assert.equal(calls[0].payload.p_scope,'future');assert.equal(calls[0].payload.p_version,3);
+  assert.match(doc.querySelector('#change-plan-status').textContent,/Reload and check/);
+  assert.ok(form.querySelector('button').disabled);
+  form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls.length,1);
+ } finally {dom.window.close();fixture.lesson_plans=[];fixture.planned_occurrences=[];}
 });
