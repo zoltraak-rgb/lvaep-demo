@@ -1,11 +1,11 @@
 import './styles.css';
 import {showAccountAccess} from './account-access.js';
 import {client,rememberSession} from './auth.js';
-import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers,calendarDays,reportCsv} from './domain.js';
+import {nyToday,previousMonth,minutesLabel,monthLabel,summarize,monthlyReportMembers,calendarDays,reportCsv,achievementTypes} from './domain.js';
 const app=document.querySelector('#app');
 app.addEventListener('click',event=>{const button=event.target.closest('[data-edit-lesson]');if(button)editLesson(button.dataset.editLesson);const plan=event.target.closest('[data-edit-plan]');if(plan)editPlan(plan.dataset.editPlan);const held=event.target.closest('[data-held-plan]');if(held){const o=occurrences.find(o=>o.id===held.dataset.heldPlan);if(o)logForm(o.lesson_date,o);}});
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let person,students=[],assignments=[],lessons=[],people=[],plans=[],occurrences=[],studentRequests=[],pendingReady=false,recordsRetrievedAt=null;
+let person,students=[],assignments=[],lessons=[],people=[],plans=[],occurrences=[],studentRequests=[],pendingReady=false,recordsRetrievedAt=null,achievements=[],achievementsReady=false;
 let reportMonth=previousMonth();
 let requestId=crypto.randomUUID();
 const isStaff=()=>person?.roles.some(r=>['staff','admin'].includes(r));
@@ -70,14 +70,19 @@ function pendingDetails(items) {
   if(!entries.length)return '';
   return `<details class="pending-details"><summary>${new Set(entries.map(a=>a.request_id)).size} student connection request(s) unresolved · ${minutesLabel(entries.reduce((n,a)=>n+a.minutes,0))}</summary><p>Teaching time is already counted once. These attendance minutes remain separate from official student totals until staff connects the student.</p><ul class="record-list">${entries.map(a=>`<li>${escape(requestName(a.request_id))} — ${escape(requestStatus(a.request_id))} · ${escape(a.date)} · ${minutesLabel(a.minutes)}</li>`).join('')}</ul></details>`;
 }
+async function loadAchievements() {
+  try {const rows=await allRows(()=>client.from('achievements').select('*').order('achieved_on').order('id'));achievementsReady=true;return rows;}
+  catch(error){if(!['PGRST205','42P01'].includes(error.code))throw error;achievementsReady=false;return [];}
+}
 async function reloadData() {
-  [students,assignments,lessons,people,plans,occurrences]=await Promise.all([
+  [students,assignments,lessons,people,plans,occurrences,achievements]=await Promise.all([
     allRows(()=>client.from('students').select('*').order('display_name').order('id')),
     allRows(()=>client.from('assignments').select('*').order('id')),
     loadLessons(),
     allRows(()=>client.from('people').select('id,display_name,roles,active').order('display_name').order('id')),
     isTutor()?allRows(()=>client.from('lesson_plans').select('id,tutor_id,version').order('id')):[],
-    isTutor()?allRows(()=>client.from('planned_occurrences').select('*').order('lesson_date').order('id')):[]
+    isTutor()?allRows(()=>client.from('planned_occurrences').select('*').order('lesson_date').order('id')):[],
+    loadAchievements()
   ]);
   recordsRetrievedAt=new Date().toISOString();
 }
@@ -88,7 +93,9 @@ function lessonList(items) {
 function home() {
   const mine=lessons.filter(l=>l.tutor_id===person.id&&!l.voided);
   const current=summarize(mine,nyToday().slice(0,7));
-  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a><button class="quiet" id="open-history">Change history</button>':''}</nav>${isTutor()?`<section id="tutor-home">${occurrences.some(o=>o.lesson_date===nyToday()&&!o.canceled)?`<section class="card" id="today-plans"><h2>Today’s plans</h2><p class="small muted">Check who attended before saving. Planned time is not recorded attendance.</p>${plannedList(occurrences.filter(o=>o.lesson_date===nyToday()&&!o.canceled))}</section>`:""}<section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button> <button class="quiet" id="new-group">Create a student group</button> <button class="quiet" id="manage-groups">My groups</button> <button class="quiet" id="missing-student">Student missing?</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><button id="new-plan" class="secondary">Plan weekly lessons</button><div class="calendar-switch" aria-label="Calendar view"><button id="calendar-grid-view" class="secondary" aria-pressed="true">Month view</button><button id="calendar-list-view" class="quiet" aria-pressed="false">List view</button></div><div id="calendar-records"></div><div id="calendar-day" aria-live="polite"></div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Use Print / Save PDF to save a PDF through your browser’s print window.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button><button id="student-requests" class="quiet">Missing-student requests</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><div><button class="quiet edit-student" data-id="${s.id}">Edit student</button>${!s.archived?`<button class="quiet assign" data-id="${s.id}">Assign tutor</button>`:""}</div></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  shell(`<section class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Hello, ${escape(person.display_name)}.</h1><p class="muted">${isTutor()?'Your students. Your lessons. All in one place.':'A clear picture of your tutoring program.'}</p></div>${isTutor()?'<button class="primary" id="open-log">+ Log session</button>':''}</section><nav class="tabs" aria-label="Workspace sections">${isTutor()?'<a href="#tutor-home">Home</a><a href="#calendar">Calendar</a>':''}${isStaff()?'<a href="#report">Reports</a><a href="#roster">Roster</a><button class="quiet" id="open-history">Change history</button>':''}</nav>${isTutor()?`<section id="tutor-home">${occurrences.some(o=>o.lesson_date===nyToday()&&!o.canceled)?`<section class="card" id="today-plans"><h2>Today’s plans</h2><p class="small muted">Check who attended before saving. Planned time is not recorded attendance.</p>${plannedList(occurrences.filter(o=>o.lesson_date===nyToday()&&!o.canceled))}</section>`:""}<section class="card"><h2>Monthly review</h2><p>Check all your students together, then confirm the month.</p><button class="secondary" id="open-review">Review a month</button> <button class="quiet" id="new-group">Create a student group</button> <button class="quiet" id="manage-groups">My groups</button> <button class="quiet" id="missing-student">Student missing?</button> <button class="quiet" id="student-profiles">My students / achievements</button></section><div class="metric-grid"><div class="card metric"><span>This month · Teaching time</span><strong>${minutesLabel(current.teachingMinutes)}</strong></div><div class="card metric"><span>Students taught this month</span><strong>${current.studentCount}</strong></div></div><section class="card"><div class="section-heading"><h2>Recently recorded</h2><span class="muted">Saved lessons</span></div>${lessonList(mine.slice(0,5))}</section><section id="calendar" class="card"><div class="section-heading"><h2>Calendar</h2><label class="inline-label">Month <input id="calendar-month" type="month" value="${nyToday().slice(0,7)}"></label></div><button id="new-plan" class="secondary">Plan weekly lessons</button><div class="calendar-switch" aria-label="Calendar view"><button id="calendar-grid-view" class="secondary" aria-pressed="true">Month view</button><button id="calendar-list-view" class="quiet" aria-pressed="false">List view</button></div><div id="calendar-records"></div><div id="calendar-day" aria-live="polite"></div></section></section>`:''}${isStaff()?`<section id="report" class="card"><div class="section-heading"><div><p class="eyebrow">PROGRAM OVERVIEW</p><h2>Monthly report</h2></div><label class="inline-label">Month <input id="report-month" type="month" value="${reportMonth}"></label></div><div id="report-content"></div><button class="quiet" id="refresh-report">Refresh saved records</button><p class="small muted">Open a tutor’s monthly review to check confirmation. Use Print / Save PDF to save a PDF through your browser’s print window.</p></section><section id="roster" class="card"><div class="section-heading"><h2>Student roster</h2><button id="add-student" class="secondary">+ Add student</button><button id="student-requests" class="quiet">Missing-student requests</button></div>${students.length?`<ul class="record-list">${students.map(s=>`<li><div><strong>${escape(s.display_name)}</strong><span>${s.archived?'Archived':'Active'}</span></div><div><button class="quiet student-profile" data-id="${s.id}">Student profile</button><button class="quiet edit-student" data-id="${s.id}">Edit student</button>${!s.archived?`<button class="quiet assign" data-id="${s.id}">Assign tutor</button>`:""}</div></li>`).join('')}</ul>`:'<p class="empty">Add the first fictional student to get started.</p>'}</section>`:''}<dialog id="form-dialog"></dialog>`);
+  document.querySelector('#student-profiles')?.addEventListener('click',studentProfiles);
+  document.querySelectorAll('.student-profile').forEach(button=>button.onclick=()=>studentProfile(button.dataset.id));
   document.querySelector('#student-requests')?.addEventListener('click',staffRequests);
   document.querySelector('#missing-student')?.addEventListener('click',missingStudentForm);
   document.querySelector('#new-plan')?.addEventListener('click',planForm);
@@ -145,7 +152,7 @@ function report() {
     const data=summarize(totals.lessons.filter(l=>l.tutor_id===id),reportMonth);
     const name=people.find(p=>p.id===id)?.display_name||'Tutor';
     const studentIds=[...members.get(id)].sort((a,b)=>studentName(a).localeCompare(studentName(b)));
-    return `<details class="tutor-report" data-tutor-id="${id}" data-review-status="loading" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'} · <span class="review-state">Loading review status…</span></small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p>${pendingDetails(data.lessons)}<button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
+    return `<details class="tutor-report" data-tutor-id="${id}" data-review-status="loading" data-search="${escape([name,...studentIds.map(studentName)].join(' ').toLowerCase())}"><summary>${escape(name)}<small class="report-row-meta">${minutesLabel(data.teachingMinutes)} taught · ${data.studentCount} student${data.studentCount===1?'':'s'} · <span class="review-state">Loading review status…</span></small></summary><p class="small muted">${data.lessons.length?'':'No recorded sessions. This does not mean the tutor has confirmed the month. '}Open the review to check confirmation status.</p>${pendingDetails(data.lessons)}${achievementDetails(achievements.filter(a=>a.tutor_id===id&&!a.voided&&a.achieved_on.startsWith(reportMonth)))}<button class="secondary check-review" data-tutor="${id}">View monthly review</button>${studentIds.map(studentId=>{
       const entries=data.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===studentId).map(a=>({id:l.id,date:l.lesson_date,minutes:a.minutes})));
       return `<details><summary>${escape(studentName(studentId))}<small class="report-row-meta">${entries.length} session${entries.length===1?'':'s'} · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))} attended</small></summary><ul class="record-list">${entries.map(e=>`<li><strong>${escape(e.date)}</strong><span>${minutesLabel(e.minutes)}</span><button class="quiet" data-edit-lesson="${e.id}">View / edit</button></li>`).join('')}</ul></details>`;
     }).join('')}</details>`;
@@ -172,7 +179,7 @@ function report() {
     const cleanup=()=>printArea.remove();window.addEventListener('afterprint',cleanup,{once:true});
     try{window.print();}catch{cleanup();alert('Printing could not open. Please use the CSV download.');}
   };
-  const csvSnapshot=structuredClone({month:reportMonth,lessons,assignments,people,students,requests:studentRequests,retrievedAt:recordsRetrievedAt});
+  const csvSnapshot=structuredClone({month:reportMonth,lessons,assignments,people,students,requests:studentRequests,achievements,retrievedAt:recordsRetrievedAt});
   document.querySelector('#download-csv').onclick=()=>{
     const reviewStates=Object.fromEntries([...document.querySelectorAll('.tutor-report')].map(row=>[row.dataset.tutorId,row.querySelector('.review-state').textContent]));
     const csv=reportCsv({...csvSnapshot,reviewStates,exportedAt:new Date().toISOString()});
@@ -247,7 +254,7 @@ async function reviewForm(tutorId) {
       container.innerHTML=`<h3>${monthLabel(month)} · ${escape(status)}${pendingCount?` · ${pendingCount} unresolved request(s)`:""}</h3>${data.confirmed_at?`<p class="small">Last confirmed ${escape(new Date(data.confirmed_at).toLocaleString())}</p>`:''}${snapshot.students.map(id=>{
         const entries=snapshot.lessons.flatMap(l=>l.attendance.filter(a=>a.student_id===id).map(a=>({date:l.date,minutes:a.minutes})));
         return `<details><summary>${escape(studentName(id))}<small class="report-row-meta">${entries.length} sessions · ${minutesLabel(entries.reduce((n,e)=>n+e.minutes,0))}</small></summary>${entries.length?`<ul class="record-list">${entries.map(e=>`<li>${escape(e.date)} · ${minutesLabel(e.minutes)}</li>`).join('')}</ul>`:'<p>No recorded sessions.</p>'}</details>`;
-      }).join('')||(snapshot.lessons.length?'':'<p>No assignments or lessons for this month.</p>')}${pendingDetails(snapshot.lessons)}<p>Confirmation covers every student listed above, including students with no recorded sessions.</p>${tutorId===person.id&&isTutor()&&data.can_confirm&&(snapshot.students.length||snapshot.lessons.length)?`<button class="primary" id="confirm-review">${data.status==='reviewed'?'Review confirmed':`Confirm ${monthLabel(month)} review`}</button>`:''}${!data.can_confirm?'<p>Review opens on the 1st of the following month, New York time.</p>':''}<p id="review-status" role="alert"></p>`;
+      }).join('')||(snapshot.lessons.length?'':'<p>No assignments or lessons for this month.</p>')}${pendingDetails(snapshot.lessons)}${achievementDetails(snapshot.achievements||[])}<p>Confirmation covers every student listed above, including students with no recorded sessions.</p>${tutorId===person.id&&isTutor()&&data.can_confirm&&(snapshot.students.length||snapshot.lessons.length)?`<button class="primary" id="confirm-review">${data.status==='reviewed'?'Review confirmed':`Confirm ${monthLabel(month)} review`}</button>`:''}${!data.can_confirm?'<p>Review opens on the 1st of the following month, New York time.</p>':''}<p id="review-status" role="alert"></p>`;
       const button=container.querySelector('#confirm-review');
       if(button){
         button.disabled=data.status==='reviewed';
@@ -440,6 +447,7 @@ async function missingStudentForm() {
     try {
       const result=await checked(client.rpc('request_missing_student',payload));
       if(!result?.id)throw Error('Unconfirmed');
+      studentRequests=[...studentRequests.filter(request=>request.id!==result.id),result];
       form.querySelectorAll('input,textarea').forEach(input=>input.disabled=true);
       status.textContent='Request saved—waiting for staff. No email or attendance was sent.';button.textContent='Request saved';
     }catch(error){
@@ -600,3 +608,48 @@ if(showAccountAccess({client,shell})) {
     if(event==='SIGNED_OUT') {person=null;students=[];assignments=[];lessons=[];people=[];login();}
   });
 } else login();
+
+const achievementLabel=code=>achievementTypes.find(type=>type.code===code)?.label||'Achievement';
+function achievementDetails(items) {
+  if(!items.length)return '';
+  return `<details class="achievement-details"><summary>${items.length} achievement update${items.length===1?'':'s'}</summary><ul class="record-list">${items.map(a=>`<li><div><strong>${escape(studentName(a.student_id))} · ${escape(achievementLabel(a.code))}</strong><span>${escape(a.achieved_on||a.date)}</span>${a.notes?`<p>${escape(a.notes)}</p>`:''}</div></li>`).join('')}</ul></details>`;
+}
+function studentProfiles() {
+  dialog('My students',`${students.length?`<ul class="record-list">${students.map(s=>`<li><strong>${escape(s.display_name)}</strong><button class="secondary profile-choice" data-id="${s.id}">Open profile</button></li>`).join('')}</ul>`:'<p>No assigned students.</p>'}`);
+  document.querySelectorAll('.profile-choice').forEach(button=>button.onclick=()=>studentProfile(button.dataset.id));
+}
+function studentProfile(studentId) {
+  const items=achievements.filter(a=>a.student_id===studentId).sort((a,b)=>b.achieved_on.localeCompare(a.achieved_on));
+  dialog('Student profile',`<h3>${escape(studentName(studentId))}</h3><h4>Achievements</h4><p>Record achievements when they happen. They are optional and do not add attendance time.</p>${achievementsReady?`<button class="primary" id="add-achievement">Add achievement</button>${items.length?`<ul class="record-list">${items.map(a=>`<li><div><strong>${escape(achievementLabel(a.code))}</strong><span>${escape(a.achieved_on)}${a.voided?' · Removed':''}${isStaff()?` · ${escape(people.find(p=>p.id===a.tutor_id)?.display_name||'Tutor')}`:''}</span>${a.notes?`<p>${escape(a.notes)}</p>`:''}</div><button class="quiet edit-achievement" data-id="${a.id}">${a.voided?'View / restore':'Edit'}</button></li>`).join('')}</ul>`:'<p>No achievements recorded yet.</p>'}`:'<p role="status">Achievement setup is being installed. No achievements can be saved yet.</p>'}`);
+  document.querySelector('#add-achievement')?.addEventListener('click',()=>achievementForm(studentId));
+  document.querySelectorAll('.edit-achievement').forEach(button=>button.onclick=()=>achievementForm(studentId,achievements.find(a=>a.id===button.dataset.id)));
+}
+function achievementForm(studentId,existing=null) {
+  const id=existing?.id||crypto.randomUUID();
+  const assignedTutors=[...new Set(assignments.filter(a=>a.student_id===studentId).map(a=>a.tutor_id))];
+  const categories=[...new Set(achievementTypes.map(a=>a.category))];
+  dialog(existing?'Edit achievement':'Add achievement',`<p><strong>${escape(studentName(studentId))}</strong></p><form id="achievement-form">${isStaff()&&!existing?`<label for="achievement-tutor">Tutor</label><select id="achievement-tutor" required><option value="">Choose assigned tutor</option>${assignedTutors.map(id=>`<option value="${id}">${escape(people.find(p=>p.id===id)?.display_name||'Tutor')}</option>`).join('')}</select>`:''}<label for="achievement-type">Achievement</label><select id="achievement-type" required><option value="">Choose an achievement</option>${categories.map(category=>`<optgroup label="${escape(category)}">${achievementTypes.filter(a=>a.category===category).map(a=>`<option value="${a.code}" ${existing?.code===a.code?'selected':''}>${escape(a.label)}</option>`).join('')}</optgroup>`).join('')}</select><label for="achievement-date">Achieved date</label><input type="date" id="achievement-date" value="${existing?.achieved_on||nyToday()}" required><label for="achievement-notes">Brief details (required for Other)</label><textarea id="achievement-notes" maxlength="1000">${escape(existing?.notes||'')}</textarea><p class="small">Use fictional details for this demonstration. The achieved date must fall within this tutor’s assignment.</p>${existing?`<label class="check"><input type="checkbox" id="achievement-removed" ${existing.voided?'checked':''}>Remove from reports (history is kept)</label>`:''}<div id="achievement-duplicate"></div><p id="achievement-status" role="status"></p><button class="primary">Save achievement</button></form>`);
+  const form=document.querySelector('#achievement-form'),button=form.querySelector('button'),status=document.querySelector('#achievement-status');let frozen=null;
+  form.onsubmit=async event=>{
+    event.preventDefault();if(button.disabled)return;
+    const payload=frozen||{p_id:id,p_tutor:existing?.tutor_id||(isStaff()?form.querySelector('#achievement-tutor').value:person.id),p_student:studentId,p_code:form.querySelector('#achievement-type').value,p_date:form.querySelector('#achievement-date').value,p_notes:form.querySelector('#achievement-notes').value.trim(),p_voided:form.querySelector('#achievement-removed')?.checked||false,p_version:existing?.version||0,p_allow_duplicate:form.querySelector('#achievement-additional')?.checked||false};
+    if(payload.p_code==='other_1'&&!payload.p_notes){status.textContent='Describe the Other achievement.';return;}
+    button.disabled=true;status.textContent='Saving…';
+    try{
+      const result=await checked(client.rpc('save_achievement',payload));
+      if(result?.status==='duplicate_warning'){
+        form.querySelector('#achievement-duplicate').innerHTML='<div class="notice"><p>This tutor already recorded this achievement for this student on this date.</p><label class="check"><input type="checkbox" id="achievement-additional">This is a separate achievement. Save another entry.</label></div>';
+        status.textContent='Check the existing achievement before adding another.';button.disabled=false;return;
+      }
+      if(result?.status!=='saved'||!result.achievement?.id)throw Error('Unconfirmed');
+      achievements=[...achievements.filter(a=>a.id!==result.achievement.id),result.achievement];
+      status.textContent='Achievement saved. Changes are included in the achieved month’s review.';button.textContent='Saved';
+      form.querySelectorAll('input,select,textarea').forEach(input=>input.disabled=true);
+      if(isStaff())report();
+    }catch(error){
+      if(!error.code){frozen=payload;form.querySelectorAll('input,select,textarea').forEach(input=>input.disabled=true);status.textContent='Save not confirmed. Retry checks the same achievement.';button.textContent='Retry save';}
+      else status.textContent=error.message||'Achievement could not be saved.';
+      button.disabled=error.code==='40001';
+    }
+  };
+}

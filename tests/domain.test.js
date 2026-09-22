@@ -45,3 +45,9 @@ test('CSV snapshot counts teaching once and separates pending, zero-session and 
  assert.equal((csv.match(/"Lesson"/g)||[]).length,1);assert.equal((csv.match(/"90"/g)||[]).length,1);
  assert.match(csv,/"Official attendance"/);assert.match(csv,/"Pending attendance"/);assert.match(csv,/"No recorded attendance"/);assert.match(csv,/'=UNSAFE/);assert.match(csv,/Name, ""Quoted""/);assert.match(csv,/Updated since review/);assert.doesNotMatch(csv,/"100"/);
 });
+
+test('CSV includes dated achievements without adding hours or removed entries',async()=>{
+ const {reportCsv}=await import('../src/domain.js');
+ const csv=reportCsv({month:'2026-08',lessons:[],assignments:[],people:[{id:'t',display_name:'Tutor'}],students:[{id:'s',display_name:'Student'}],achievements:[{id:'a',tutor_id:'t',student_id:'s',achieved_on:'2026-08-05',code:'family_6',notes:'=unsafe()'},{id:'b',tutor_id:'t',student_id:'s',achieved_on:'2026-08-06',code:'other_1',notes:'Removed goal',voided:true},{id:'c',tutor_id:'t',student_id:'s',achieved_on:'2026-07-06',code:'other_1',notes:'Other month'}]});
+ assert.match(csv,/"Achievement","2026-08"/);assert.match(csv,/Visit library with\/for children/);assert.match(csv,/'=unsafe/);assert.doesNotMatch(csv,/Removed goal|Other month|"Lesson"/);
+});

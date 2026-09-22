@@ -7,7 +7,7 @@ import * as domain from '../src/domain.js';
 const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 const tutor='00000000-0000-4000-8000-000000000001';
 const student='00000000-0000-4000-8000-000000000002';
-const fixture={student_requests:[],lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
+const fixture={achievements:[],student_requests:[],lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
 function mockClient({failReads=false,rpc}={}) {
   return {auth:{getUser:async()=>({data:{user:{id:tutor}}}),onAuthStateChange:()=>{},signOut:async()=>({})},
     from(table){
@@ -216,12 +216,15 @@ test('staff review filter preserves unknown status and ignores stale month respo
 });
 
 test('missing request form checks existing requests and freezes uncertain retries',async()=>{
- const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{id:payload.p_id}};}}));
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{id:payload.p_id,tutor_id:tutor,display_name:payload.p_name,context:payload.p_context,status:'pending',version:1}};}}));
  try{
   await settle();const doc=dom.window.document;doc.querySelector('#missing-student').click();await settle();
   doc.querySelector('#missing-name').value='Fictional learner';const form=doc.querySelector('#missing-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
   assert.ok(doc.querySelector('#missing-name').disabled);form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
   assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].name,'request_missing_student');assert.match(doc.querySelector('#missing-status').textContent,/Request saved/);
+  doc.querySelector('#close-dialog').click();doc.querySelector('#open-log').click();
+  assert.equal(doc.querySelectorAll('[name=pending-student]').length,1);
+  assert.match(doc.querySelector('#lesson-form').textContent,/Fictional learner/);
  }finally{dom.window.close();}
 });
 
@@ -320,4 +323,23 @@ test('staff rejection requires reason, preserves action on retry, and labels ret
   doc.querySelector('#request-reason').value='Could not verify the student';form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.ok(doc.querySelector('#request-reason').disabled);
   form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].p_action,'reject');assert.match(doc.querySelector('#request-change-status').textContent,/Teaching time is unchanged/);
  }finally{fixture.people[0].roles=roles;fixture.student_requests=[];dom.window.close();}
+});
+
+test('student profile offers every achievement category and freezes a duplicate-approved retry',async()=>{
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{
+  calls.push({name,payload:structuredClone(payload)});
+  if(calls.length===1)return {data:{status:'duplicate_warning'}};
+  if(calls.length===2)return {error:{message:'offline'}};
+  return {data:{status:'saved',achievement:{id:payload.p_id,student_id:student,tutor_id:tutor,achieved_on:payload.p_date,code:payload.p_code,notes:payload.p_notes,version:1}}};
+ }}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();doc.querySelector('#add-achievement').click();
+  assert.equal(doc.querySelectorAll('#achievement-type optgroup').length,5);assert.equal(doc.querySelectorAll('#achievement-type option').length,19);
+  doc.querySelector('#achievement-type').value='other_1';const form=doc.querySelector('#achievement-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));assert.equal(calls.length,0);
+  doc.querySelector('#achievement-notes').value='Fictional learner goal';form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.match(doc.querySelector('#achievement-duplicate').textContent,/already recorded/);doc.querySelector('#achievement-additional').checked=true;form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.ok(doc.querySelector('#achievement-date').disabled);form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.deepEqual(calls[1],calls[2]);assert.equal(calls[2].payload.p_allow_duplicate,true);assert.match(doc.querySelector('#achievement-status').textContent,/Achievement saved/);
+  doc.querySelector('#close-dialog').click();doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();assert.match(doc.querySelector('dialog').textContent,/Fictional learner goal/);
+ }finally{dom.window.close();}
 });

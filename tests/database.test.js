@@ -33,6 +33,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0009_pending_attendance.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0010_pending_corrections.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0011_request_corrections.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0012_achievements.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -352,9 +353,11 @@ test('upgrading existing confirmations preserves reviewed and changed states wit
   await upgrade.query("insert into public.monthly_reviews(tutor_id,month,reviewed_snapshot,confirmed_at) select $1,m,app_private.review_snapshot($1,m),'2026-09-01T12:00:00Z' from unnest(array['2026-07-01'::date,'2026-08-01'::date]) m",[ids.tutor]);
   await upgrade.exec("update public.lessons set minutes=100,version=version+1 where lesson_date='2026-08-05'");
   await upgrade.exec(await readFile(new URL('../supabase/migrations/0009_pending_attendance.sql',import.meta.url),'utf8'));
+  await upgrade.exec(await readFile(new URL('../supabase/migrations/0012_achievements.sql',import.meta.url),'utf8'));
   const rows=(await upgrade.query('select month::text,confirmed_at,reviewed_snapshot=app_private.review_snapshot(tutor_id,month) as unchanged,reviewed_snapshot from public.monthly_reviews order by month')).rows;
   assert.equal(rows[0].unchanged,true);assert.equal(rows[1].unchanged,false);
   assert.deepEqual(rows[0].reviewed_snapshot.lessons[0].pending,[]);
+  assert.deepEqual(rows[0].reviewed_snapshot.achievements,[]);
   for(const row of rows)assert.equal(new Date(row.confirmed_at).toISOString(),'2026-09-01T12:00:00.000Z');
   assert.equal((await upgrade.query("select count(*)::int n from public.audit_events where entity='monthly_review'")).rows[0].n,0);
  }finally{await upgrade.close();}
@@ -380,4 +383,37 @@ test('undo wrong connection restores corrected attendance only once without chan
  assert.equal((await call('select minutes from public.pending_attendance where lesson_id=$1',[lesson]))[0].minutes,50);assert.equal((await call('select * from public.attendance where lesson_id=$1',[lesson])).length,0);assert.equal((await call('select minutes from public.lessons where id=$1',[lesson]))[0].minutes,90);
  assert.equal((await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r.status,'updated');
  await call('select public.resolve_student_request($1,$2,3)',[req,ids.student1]);assert.equal((await call('select minutes from public.attendance where lesson_id=$1',[lesson]))[0].minutes,50);
+});
+
+const achievement=(id,{tutor='tutor',student='student1',code='economic_1',date='2026-08-10',notes='',version=0,voided=false,allow=false}={})=>call('select public.save_achievement($1,$2,$3,$4,$5,$6,$7,$8,$9) as r',[id,ids[tutor],ids[student],code,date,notes,voided,version,allow]);
+test('achievements enforce ownership, assignment dates and explicit duplicate choice',async()=>{
+ await as('tutor');const id=uuid();
+ const first=(await achievement(id))[0].r;assert.equal(first.status,'saved');
+ assert.equal((await achievement(id))[0].r.achievement.id,id);
+ const repeat=uuid();assert.equal((await achievement(repeat))[0].r.status,'duplicate_warning');
+ assert.equal((await achievement(repeat,{allow:true}))[0].r.status,'saved');
+ assert.equal((await achievement(uuid(),{date:'2026-08-11'}))[0].r.status,'saved');
+ await assert.rejects(achievement(uuid(),{student:'hidden'}),/must be assigned/);
+ await assert.rejects(achievement(uuid(),{date:'2025-08-10'}),/must be assigned/);
+ await assert.rejects(achievement(uuid(),{code:'other_1'}),/describe Other/);
+ await assert.rejects(achievement(uuid(),{tutor:'other',student:'hidden'}),/access denied/);
+ await assert.rejects(call('delete from public.achievements'),/permission denied/);
+ await as('other');assert.equal((await call('select * from public.achievements where id=$1',[id])).length,0);
+ await as('anon');await assert.rejects(call('select * from public.achievements'),/permission denied/);
+});
+test('achievement edits invalidate the achieved month review and removal preserves audited history',async()=>{
+ await as('tutor');const id=uuid();await achievement(id,{code:'family_6',date:'2026-08-12'});
+ const review=async()=>(await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r;
+ let r=await review();await call("select public.confirm_month_review('2026-08-01',$1::jsonb)",[JSON.stringify(r.snapshot)]);
+ assert.equal((await review()).status,'reviewed');
+ await achievement(id,{code:'family_6',date:'2026-08-12',notes:'Fictional correction',version:1});
+ assert.equal((await review()).status,'updated');
+ await assert.rejects(achievement(id,{code:'family_6',date:'2026-08-12',notes:'Stale change',version:1}),/changed/);
+ await as('staff');await achievement(id,{code:'family_6',date:'2026-08-12',notes:'Fictional correction',version:2,voided:true});
+ await achievement(id,{code:'family_6',date:'2026-08-12',notes:'Fictional correction',version:2,voided:true});
+ assert.ok((await call('select voided from public.achievements where id=$1',[id]))[0].voided);
+ const audit=await call("select action,before_value,after_value from public.audit_events where entity='achievement' and entity_id=$1 order by id",[id]);
+ assert.deepEqual(audit.map(a=>a.action),['recorded','corrected','removed']);assert.equal(audit[2].before_value.notes,'Fictional correction');
+ assert.ok(!(await review()).snapshot.achievements.some(a=>a.id===id));
+ await achievement(id,{code:'family_6',date:'2026-08-12',notes:'Fictional correction',version:3});assert.ok((await review()).snapshot.achievements.some(a=>a.id===id));
 });

@@ -41,11 +41,11 @@ export function calendarDays(month) {
 }
 
 // Separate row types keep shared teaching time from being repeated for each student.
-export function reportCsv({month,lessons,assignments,people,students,requests=[],reviewStates={},retrievedAt,exportedAt}) {
-  const columns=['Record type','Month','Records retrieved UTC','Exported UTC','Tutor','Student','Lesson date','Teaching minutes','Official attendance minutes','Pending attendance minutes','Review status'];
+export function reportCsv({month,lessons,assignments,people,students,requests=[],achievements=[],reviewStates={},retrievedAt,exportedAt}) {
+  const columns=['Record type','Month','Records retrieved UTC','Exported UTC','Tutor','Student','Record date','Teaching minutes','Official attendance minutes','Pending attendance minutes','Review status','Achievement','Achievement details'];
   const rows=[columns];
   const name=(items,id,fallback)=>items.find(item=>item.id===id)?.display_name||fallback;
-  const add=(type,tutor,student='',date='',teaching='',official='',pending='')=>rows.push([type,month,retrievedAt,exportedAt,name(people,tutor,'Tutor'),student,date,teaching,official,pending,reviewStates[tutor]||'Unavailable']);
+  const add=(type,tutor,student='',date='',teaching='',official='',pending='',achievement='',notes='')=>rows.push([type,month,retrievedAt,exportedAt,name(people,tutor,'Tutor'),student,date,teaching,official,pending,reviewStates[tutor]||'Unavailable',achievement,notes]);
   const members=monthlyReportMembers(assignments,lessons,month);
   for(const [tutor,studentIds] of members){
     add('Tutor review',tutor);
@@ -57,6 +57,9 @@ export function reportCsv({month,lessons,assignments,people,students,requests=[]
       for(const a of lesson.pending_attendance||[])add(requests.find(r=>r.id===a.request_id)?.status==='rejected'?'Rejected attendance (not official)':'Pending attendance',tutor,name(requests,a.request_id,'Student awaiting connection'),lesson.lesson_date,'','',a.minutes);
     }
   }
+  for(const a of achievements.filter(a=>!a.voided&&a.achieved_on.startsWith(month)))add('Achievement',a.tutor_id,name(students,a.student_id,'Student'),a.achieved_on,'','','',achievementTypes.find(t=>t.code===a.code)?.label||a.code,a.notes);
   const cell=value=>{let text=String(value??'');if(/^[\s]*[=+@-]/.test(text)||/^[\t\r\n]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};
   return '\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n';
 }
+
+export const achievementTypes=[{"code": "economic_1", "category": "Economic", "label": "Enter employment"}, {"code": "economic_2", "category": "Economic", "label": "Retain employment"}, {"code": "economic_3", "category": "Economic", "label": "Leave public assistance"}, {"code": "educational_1", "category": "Educational", "label": "Achieve work-based project learner goal"}, {"code": "educational_2", "category": "Educational", "label": "Enter occupational skills training"}, {"code": "educational_3", "category": "Educational", "label": "Enter postsecondary education"}, {"code": "educational_4", "category": "Educational", "label": "Obtain high school diploma"}, {"code": "family_1", "category": "Family", "label": "Help more frequently with school"}, {"code": "family_2", "category": "Family", "label": "Increase contact with children’s teachers"}, {"code": "family_3", "category": "Family", "label": "Involvement in school activities"}, {"code": "family_4", "category": "Family", "label": "Purchase books/magazines"}, {"code": "family_5", "category": "Family", "label": "Read to children"}, {"code": "family_6", "category": "Family", "label": "Visit library with/for children"}, {"code": "societal_1", "category": "Societal/Community", "label": "Obtain citizenship"}, {"code": "societal_2", "category": "Societal/Community", "label": "Achieve civics skills"}, {"code": "societal_3", "category": "Societal/Community", "label": "Community involvement"}, {"code": "societal_4", "category": "Societal/Community", "label": "Vote/register to vote"}, {"code": "other_1", "category": "Other", "label": "Other"}];
