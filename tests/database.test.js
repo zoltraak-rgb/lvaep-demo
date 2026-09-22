@@ -32,6 +32,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0008_missing_student_requests.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0009_pending_attendance.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0010_pending_corrections.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0011_request_corrections.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -357,4 +358,26 @@ test('upgrading existing confirmations preserves reviewed and changed states wit
   for(const row of rows)assert.equal(new Date(row.confirmed_at).toISOString(),'2026-09-01T12:00:00.000Z');
   assert.equal((await upgrade.query("select count(*)::int n from public.audit_events where entity='monthly_review'")).rows[0].n,0);
  }finally{await upgrade.close();}
+});
+
+test('rejected requests retain teaching and pending history, block new lessons, and reopen safely',async()=>{
+ await as('tutor');const req=uuid();await call("select public.request_missing_student($1,'Rejected learner','')",[req]);
+ const record=()=>call("select public.record_mixed_lesson($1,'2026-08-21',90,'[]',$2::jsonb,true) as r",[uuid(),JSON.stringify([{request_id:req,minutes:40}])]);
+ const lesson=(await record())[0].r.lesson_id;
+ await assert.rejects(call("select public.change_student_request($1,1,'reject','Unverified')",[req]),/Staff access required/);
+ await as('staff');await call("select public.change_student_request($1,1,'reject','Unverified')",[req]);await call("select public.change_student_request($1,1,'reject','Unverified')",[req]);
+ assert.equal((await call('select minutes from public.lessons where id=$1',[lesson]))[0].minutes,90);assert.equal((await call('select minutes from public.pending_attendance where lesson_id=$1',[lesson]))[0].minutes,40);
+ await as('tutor');await assert.rejects(record(),/Pending request unavailable/);
+ await as('staff');await call("select public.change_student_request($1,2,'reopen','Verified context')",[req]);await as('tutor');assert.equal((await record())[0].r.status,'saved');
+});
+test('undo wrong connection restores corrected attendance only once without changing teaching',async()=>{
+ await as('tutor');const req=uuid();await call("select public.request_missing_student($1,'Wrong match','')",[req]);
+ const lesson=(await call("select public.record_mixed_lesson($1,'2026-08-20',90,'[]',$2::jsonb,true) as r",[uuid(),JSON.stringify([{request_id:req,minutes:45}])]))[0].r.lesson_id;
+ await as('staff');await call('select public.resolve_student_request($1,$2,1)',[req,ids.student2]);
+ await as('tutor');await call("select public.correct_lesson($1,2,'2026-08-20',90,$2::jsonb,false,true)",[lesson,JSON.stringify([{student_id:ids.student2,minutes:50}])]);
+ const review=(await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r;await call("select public.confirm_month_review('2026-08-01',$1::jsonb)",[JSON.stringify(review.snapshot)]);
+ await as('staff');await call("select public.change_student_request($1,2,'disconnect','Wrong person selected')",[req]);await call("select public.change_student_request($1,2,'disconnect','Wrong person selected')",[req]);
+ assert.equal((await call('select minutes from public.pending_attendance where lesson_id=$1',[lesson]))[0].minutes,50);assert.equal((await call('select * from public.attendance where lesson_id=$1',[lesson])).length,0);assert.equal((await call('select minutes from public.lessons where id=$1',[lesson]))[0].minutes,90);
+ assert.equal((await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r.status,'updated');
+ await call('select public.resolve_student_request($1,$2,3)',[req,ids.student1]);assert.equal((await call('select minutes from public.attendance where lesson_id=$1',[lesson]))[0].minutes,50);
 });

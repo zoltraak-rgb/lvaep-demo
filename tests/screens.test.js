@@ -310,3 +310,14 @@ test('today plans remain a confirmation shortcut and exclude canceled occurrence
  fixture.lesson_plans=[{id:'today-plan',tutor_id:tutor,version:1}];fixture.planned_occurrences=[{id:'today-one',plan_id:'today-plan',lesson_date:domain.nyToday(),minutes:90,student_ids:[student],canceled:false,lesson_id:null},{id:'today-cancel',plan_id:'today-plan',lesson_date:domain.nyToday(),minutes:90,student_ids:[student],canceled:true,lesson_id:null}];
  const calls=[];const dom=screen(mockClient({rpc:async(...args)=>{calls.push(args);return {data:{status:'saved'}};}}));try{await settle();const doc=dom.window.document;const today=doc.querySelector('#today-plans');assert.ok(today);assert.equal(today.querySelector('[data-held-plan="today-cancel"]'),null);today.querySelector('[data-held-plan="today-one"]').click();await settle();assert.equal(calls.length,0);assert.equal(doc.querySelector('#lesson-date').value,domain.nyToday());assert.equal(doc.querySelector('#duration').value,'90');}finally{fixture.lesson_plans=[];fixture.planned_occurrences=[];dom.window.close();}
 });
+
+test('staff rejection requires reason, preserves action on retry, and labels retained attendance',async()=>{
+ const roles=fixture.people[0].roles;fixture.people[0].roles=['staff'];fixture.student_requests=[{id:'reject-ui',tutor_id:tutor,display_name:'Unverified learner',status:'pending',version:1}];
+ const calls=[];const dom=screen(mockClient({rpc:async(name,payload)=>{if(name!=='change_student_request')return {data:{status:'reviewed',can_confirm:true}};calls.push(structuredClone(payload));return calls.length===1?{error:{message:'offline'}}:{data:{status:'rejected'}};}}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('#student-requests').click();await settle();doc.querySelector('[data-change-request]').click();
+  const form=doc.querySelector('#request-change-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls.length,0);
+  doc.querySelector('#request-reason').value='Could not verify the student';form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.ok(doc.querySelector('#request-reason').disabled);
+  form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);assert.equal(calls[0].p_action,'reject');assert.match(doc.querySelector('#request-change-status').textContent,/Teaching time is unchanged/);
+ }finally{fixture.people[0].roles=roles;fixture.student_requests=[];dom.window.close();}
+});

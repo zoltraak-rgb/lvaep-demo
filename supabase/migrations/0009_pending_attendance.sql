@@ -1,4 +1,5 @@
 begin;
+alter table public.attendance add column source_request_id uuid references public.student_requests(id);
 create table public.pending_attendance (
  lesson_id uuid not null references public.lessons(id),
  request_id uuid not null references public.student_requests(id),
@@ -111,7 +112,7 @@ begin
  end loop;
  -- Invalidate already-open correction forms without invalidating an unchanged reviewed snapshot.
  update public.lessons set version=version+1 where id in(select lesson_id from public.pending_attendance where request_id=p_request);
- insert into public.attendance(lesson_id,student_id,minutes) select lesson_id,p_student,minutes from public.pending_attendance where request_id=p_request;
+ insert into public.attendance(lesson_id,student_id,minutes,source_request_id) select lesson_id,p_student,minutes,p_request from public.pending_attendance where request_id=p_request;
  -- Original pending values remain in the resolution audit; official attendance stays on the same lesson.
  insert into public.audit_events(actor_id,entity,entity_id,action,before_value,after_value) values(auth.uid(),'student_request',p_request,'resolved',jsonb_build_object('request',to_jsonb(request),'attendance',(select jsonb_agg(to_jsonb(pa)) from public.pending_attendance pa where request_id=p_request)),jsonb_build_object('student_id',p_student));
  delete from public.pending_attendance where request_id=p_request;

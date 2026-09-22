@@ -38,8 +38,8 @@ begin
    if conflicts is not null and not coalesce(p_allow_additional,false) then return jsonb_build_object('status','duplicate_warning','existing',conflicts); end if;
  end if;
  update public.lessons set lesson_date=p_date,minutes=p_minutes,voided=p_void,version=version+1 where id=p_id;
- delete from public.attendance where lesson_id=p_id;
- insert into public.attendance(lesson_id,student_id,minutes) select p_id,x.student_id,x.minutes from jsonb_to_recordset(canonical) x(student_id uuid,minutes integer);
+ delete from public.attendance where lesson_id=p_id and student_id not in(select x.student_id from jsonb_to_recordset(canonical) x(student_id uuid,minutes integer));
+ insert into public.attendance(lesson_id,student_id,minutes) select p_id,x.student_id,x.minutes from jsonb_to_recordset(canonical) x(student_id uuid,minutes integer) on conflict(lesson_id,student_id) do update set minutes=excluded.minutes;
  delete from public.pending_attendance where lesson_id=p_id;
  insert into public.pending_attendance(lesson_id,request_id,minutes) select p_id,x.request_id,x.minutes from jsonb_to_recordset(pending_canonical) x(request_id uuid,minutes integer);
  insert into public.audit_events(actor_id,entity,entity_id,action,before_value,after_value)

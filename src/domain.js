@@ -54,7 +54,7 @@ export function reportCsv({month,lessons,assignments,people,students,requests=[]
     for(const lesson of recorded){
       add('Lesson',tutor,'',lesson.lesson_date,lesson.minutes);
       for(const a of lesson.attendance||[])add('Official attendance',tutor,name(students,a.student_id,'Student'),lesson.lesson_date,'',a.minutes);
-      for(const a of lesson.pending_attendance||[])add('Pending attendance',tutor,name(requests,a.request_id,'Student awaiting connection'),lesson.lesson_date,'','',a.minutes);
+      for(const a of lesson.pending_attendance||[])add(requests.find(r=>r.id===a.request_id)?.status==='rejected'?'Rejected attendance (not official)':'Pending attendance',tutor,name(requests,a.request_id,'Student awaiting connection'),lesson.lesson_date,'','',a.minutes);
     }
   }
   const cell=value=>{let text=String(value??'');if(/^[\s]*[=+@-]/.test(text)||/^[\t\r\n]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};
