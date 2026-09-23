@@ -41,8 +41,8 @@ export function calendarDays(month) {
 }
 
 // Separate row types keep shared teaching time from being repeated for each student.
-export function reportCsv({month,lessons,assignments,people,students,requests=[],achievements=[],reviewStates={},retrievedAt,exportedAt}) {
-  const columns=['Record type','Month','Records retrieved UTC','Exported UTC','Tutor','Student','Record date','Teaching minutes','Official attendance minutes','Pending attendance minutes','Review status','Achievement','Achievement details'];
+export function reportCsv({month,lessons,assignments,people,students,requests=[],achievements=[],absences=[],reviewStates={},retrievedAt,exportedAt}) {
+  const columns=['Record type','Month','Records retrieved UTC','Exported UTC','Tutor','Student','Record date','Teaching minutes','Official attendance minutes','Pending attendance minutes','Review status','Achievement','Details / absence code'];
   const rows=[columns];
   const name=(items,id,fallback)=>items.find(item=>item.id===id)?.display_name||fallback;
   const add=(type,tutor,student='',date='',teaching='',official='',pending='',achievement='',notes='')=>rows.push([type,month,retrievedAt,exportedAt,name(people,tutor,'Tutor'),student,date,teaching,official,pending,reviewStates[tutor]||'Unavailable',achievement,notes]);
@@ -58,6 +58,7 @@ export function reportCsv({month,lessons,assignments,people,students,requests=[]
     }
   }
   for(const a of achievements.filter(a=>!a.voided&&a.achieved_on.startsWith(month)))add('Achievement',a.tutor_id,name(students,a.student_id,'Student'),a.achieved_on,'','','',achievementTypes.find(t=>t.code===a.code)?.label||a.code,a.notes);
+  for(const a of absences.filter(a=>!a.voided&&a.absence_date.startsWith(month)))add('Absence / holiday',a.tutor_id,name(students,a.student_id,'Student'),a.absence_date,'','','','',a.code+' — zero hours');
   const cell=value=>{let text=String(value??'');if(/^[\s]*[=+@-]/.test(text)||/^[\t\r\n]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};
   return '\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n';
 }

@@ -36,6 +36,8 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0012_achievements.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0013_assignment_endings.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0014_roster_import.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0015_tutoring_details.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0016_absence_codes.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -356,10 +358,12 @@ test('upgrading existing confirmations preserves reviewed and changed states wit
   await upgrade.exec("update public.lessons set minutes=100,version=version+1 where lesson_date='2026-08-05'");
   await upgrade.exec(await readFile(new URL('../supabase/migrations/0009_pending_attendance.sql',import.meta.url),'utf8'));
   await upgrade.exec(await readFile(new URL('../supabase/migrations/0012_achievements.sql',import.meta.url),'utf8'));
+  await upgrade.exec(await readFile(new URL('../supabase/migrations/0016_absence_codes.sql',import.meta.url),'utf8'));
   const rows=(await upgrade.query('select month::text,confirmed_at,reviewed_snapshot=app_private.review_snapshot(tutor_id,month) as unchanged,reviewed_snapshot from public.monthly_reviews order by month')).rows;
   assert.equal(rows[0].unchanged,true);assert.equal(rows[1].unchanged,false);
   assert.deepEqual(rows[0].reviewed_snapshot.lessons[0].pending,[]);
   assert.deepEqual(rows[0].reviewed_snapshot.achievements,[]);
+  assert.deepEqual(rows[0].reviewed_snapshot.absences,[]);
   for(const row of rows)assert.equal(new Date(row.confirmed_at).toISOString(),'2026-09-01T12:00:00.000Z');
   assert.equal((await upgrade.query("select count(*)::int n from public.audit_events where entity='monthly_review'")).rows[0].n,0);
  }finally{await upgrade.close();}
@@ -458,4 +462,30 @@ test('roster import blocks stale preview, malformed rows and unauthorized access
  await assert.rejects(importCall(uuid(),[{...rows[0],tutor_ref:'TUTOR-'+ids.tutor,starts_on:'2026-02-30'}]),/date\/time|out of range/);
  await assert.rejects(importCall(uuid(),[rows[0],rows[0]]),/Repeated/);
  await as('tutor');await assert.rejects(importCall(uuid(),rows),/Staff access/);assert.equal((await call('select * from public.roster_references')).length,0);
+});
+
+test('reusable tutoring details are owned, versioned and do not create attendance',async()=>{
+ await as('tutor');const a=(await call('select * from public.assignments where student_id=$1 order by starts_on',[ids.student1]))[0];const count=(await call('select count(*)::int n from public.lessons'))[0].n;
+ const saveDetails=()=>call("select to_jsonb(public.save_tutoring_details($1,$2,'Library (Demo)','Mondays 4–5 p.m. New York')) as a",[a.id,a.version]);
+ assert.equal((await saveDetails())[0].a.tutoring_site,'Library (Demo)');await saveDetails();assert.equal((await call('select count(*)::int n from public.lessons'))[0].n,count);
+ await assert.rejects(call("select public.save_tutoring_details($1,$2,'Changed','Tuesday')",[a.id,a.version]),/Assignment changed/);
+ await as('other');await assert.rejects(saveDetails(),/access denied/);
+});
+
+test('absence codes require staff by default, admin enables tutors, and hours never change',async()=>{
+ const id=uuid();const saveAbsence=(version=0,voided=false)=>call("select to_jsonb(public.save_absence($1,$2,$3,'2026-08-09','SA',$4,$5)) as a",[id,ids.tutor,ids.student1,voided,version]);
+ await as('tutor');const count=(await call('select count(*)::int n from public.lessons'))[0].n;await assert.rejects(saveAbsence(),/restricted to staff/);
+ await as('staff');await assert.rejects(call('select public.set_absence_permission(true,1)'),/Administrator/);await saveAbsence();await saveAbsence();
+ await as('tutor');assert.equal((await call('select count(*)::int n from public.lessons'))[0].n,count);assert.equal((await call('select * from public.absence_records where id=$1',[id])).length,1);
+ await as('admin');await call('select public.set_absence_permission(true,1)');
+ await as('tutor');await saveAbsence(1,true);await saveAbsence(1,true);assert.ok((await call('select voided from public.absence_records where id=$1',[id]))[0].voided);
+ await as('other');await assert.rejects(saveAbsence(2,false),/restricted to staff/);
+ await as('admin');await call('select public.set_absence_permission(false,2)');await as('tutor');await assert.rejects(saveAbsence(2,false),/restricted to staff/);
+});
+test('absence changes appear in month review and duplicate codes cannot be counted twice',async()=>{
+ await as('staff');const id=uuid();await call("select public.save_absence($1,$2,$3,'2026-08-08','H',false,0)",[id,ids.tutor,ids.student1]);
+ await assert.rejects(call("select public.save_absence($1,$2,$3,'2026-08-08','H',false,0)",[uuid(),ids.tutor,ids.student1]),/already recorded/);
+ await as('tutor');const review=async()=>(await call("select public.get_month_review($1,'2026-08-01') as r",[ids.tutor]))[0].r;
+ const r=await review();assert.ok(r.snapshot.absences.some(a=>a.id===id));await call("select public.confirm_month_review('2026-08-01',$1::jsonb)",[JSON.stringify(r.snapshot)]);
+ await as('staff');await call("select public.save_absence($1,$2,$3,'2026-08-08','H',true,1)",[id,ids.tutor,ids.student1]);assert.equal((await review()).status,'updated');
 });

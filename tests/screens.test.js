@@ -8,7 +8,7 @@ import * as domain from '../src/domain.js';
 const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 const tutor='00000000-0000-4000-8000-000000000001';
 const student='00000000-0000-4000-8000-000000000002';
-const fixture={roster_references:[],achievements:[],student_requests:[],lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
+const fixture={program_settings:[{id:true,tutor_absence_entry:false,version:1}],absence_records:[],roster_references:[],achievements:[],student_requests:[],lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
 function mockClient({failReads=false,rpc}={}) {
   return {auth:{getUser:async()=>({data:{user:{id:tutor}}}),onAuthStateChange:()=>{},signOut:async()=>({})},
     from(table){
@@ -366,4 +366,10 @@ test('roster import previews before mutation and freezes uncertain commit retrie
   doc.querySelector('#commit-import').click();assert.equal(calls.length,1);doc.querySelector('#confirm-import').checked=true;doc.querySelector('#commit-import').click();await settle();
   assert.ok(doc.querySelector('#roster-csv').disabled);doc.querySelector('#commit-import').click();await settle();assert.deepEqual(calls[1],calls[2]);assert.match(doc.querySelector('#import-status').textContent,/Imported 1 rows/);
  }finally{fixture.people[0].roles=original;dom.window.close();}
+});
+
+test('absence controls stay off for tutors until program setting enables entry',async()=>{
+ let dom=screen(mockClient());await settle();let doc=dom.window.document;doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();assert.equal(doc.querySelector('#add-absence'),null);assert.equal(doc.querySelector('#program-settings'),null);dom.window.close();
+ fixture.program_settings[0].tutor_absence_entry=true;const calls=[];dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload});return {data:{id:payload.p_id,tutor_id:tutor,student_id:student,absence_date:payload.p_date,code:payload.p_code,version:1}};}}));
+ try{await settle();doc=dom.window.document;doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();doc.querySelector('#add-absence').click();doc.querySelector('#absence-form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls[0].name,'save_absence');assert.equal(calls[0].payload.p_tutor,tutor);assert.match(doc.querySelector('#absence-status').textContent,/No teaching or attendance hours added/);}finally{fixture.program_settings[0].tutor_absence_entry=false;dom.window.close();}
 });
