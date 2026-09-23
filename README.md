@@ -1,5 +1,9 @@
 # LVAEP tutoring records — demonstration
 
+**Live website: [https://zoltraak-rgb.github.io/lvaep-demo/](https://zoltraak-rgb.github.io/lvaep-demo/)**
+
+Reviewers can click **“Try as tutor”** or **“Try as staff”** without registering. Both dedicated shared demo accounts already exist; no private access arrangement is needed.
+
 A student-built demonstration for a literacy tutoring program. **Not an official LVAEP service. Use fictional data only.**
 
 Tutors record shared lessons once while preserving each student's attendance. Staff review monthly reports and resolve students waiting for an assignment. Password sign-in and database-enforced roles protect records; there is no public role switch.
@@ -17,7 +21,7 @@ Tutors record shared lessons once while preserving each student's attendance. St
 
 ## Incomplete integration
 
-This repository is a substantial demonstration, **not a production-ready system or a completed implementation of every planned feature**. Invitation/replacement-link/password-reset delivery, new-account provisioning UI, monthly scheduled emails and staff follow-up delivery are not connected. Server email modules are tested building blocks; they do not send mail by themselves. Separate staff demonstration account and a hosted reset/seed procedure still need setup. Do not enter real student data.
+This repository is a substantial demonstration, **not a production-ready system or a completed implementation of every planned feature**. Invitation/replacement-link/password-reset delivery, new-account provisioning UI, monthly scheduled emails and staff follow-up delivery are not connected. Server email modules are tested building blocks; they do not send mail by themselves. Both public demo accounts and the initial fictional seed are already installed. No repeatable automatic reset exists. Do not enter real student data.
 
 ## Run and test
 
@@ -32,17 +36,17 @@ pnpm test
 pnpm build
 ```
 
-Never use a service-role key in `VITE_*`. The publishable key is intentionally browser-visible; row-level security and checked database functions enforce access. Passwords, provider secrets and `.env.local` are excluded from Git.
+Never use a service-role key in `VITE_*`. The publishable key is intentionally browser-visible; row-level security and checked database functions enforce access. Personal/admin passwords, provider secrets and `.env.local` are excluded from Git. Dedicated shared demo credentials are intentionally public.
 
 ## Database setup
 
-Apply `supabase/migrations/*.sql` in numeric order to a dedicated new **Supabase Free demonstration project**. Migrations are transactional but generally not repeatable after successful installation. Existing projects should run only unapplied migrations. Keep public signup disabled. The owner must securely create the initial Auth users and matching `people` records; ordinary visitors cannot choose a role. No credentials are included in this repository.
+Apply `supabase/migrations/*.sql` in numeric order to a dedicated new **Supabase Free demonstration project**. Migrations are transactional but generally not repeatable after successful installation. Existing projects should run only unapplied migrations. Keep public signup disabled. The owner must securely create the initial Auth users and matching `people` records; ordinary visitors cannot choose a role. Dedicated shared demo credentials are intentionally included; personal/admin credentials are not.
 
 All client-facing tables have row-level security. Application writes go through role-checked functions with validation and audit events. Last-administrator protection is enforced in the database. Shared lesson duration and per-student attendance are separate; dates are reported in America/New_York.
 
 ## Deployment
 
-The public deployment uses GitHub Pages from the `docs/` folder on `main`. Run `pnpm build:pages` with the target project's URL and publishable key in `.env.local`, commit the generated `docs/` output with the source, and push. Relative asset URLs support the repository path. The generated JavaScript includes the public project identifier/key, never a service-role key or password.
+The public deployment uses GitHub Pages from the `docs/` folder on `main`. Run `pnpm build:pages` with the target project's URL and publishable key in `.env.local`, commit the generated `docs/` output with the source, and push. Relative asset URLs support the repository path. The generated JavaScript includes the public project identifier/key, never a service-role key or personal/admin password. Dedicated shared demo credentials are intentionally bundled.
 
 Supabase retains authentication and storage. Static hosting does not enable unfinished server email modules. Do not upload the parent planning/setup directory, private account details or local environment files.
 
@@ -52,7 +56,7 @@ GitHub Pages is free for public repositories. Supabase uses its Free plan. No pu
 
 See [DEMO-GUIDE.md](DEMO-GUIDE.md), [TEST-CHECKLIST.md](TEST-CHECKLIST.md) and [CSV samples](samples/README.md). Automated tests exercise real migrations in isolated PostgreSQL (PGlite), domain calculations and browser-form behavior (JSDOM). They do not replace hosted authentication, inbox delivery or usability testing. Test identities are synthetic and mail transports are stubbed.
 
-Public source contains no demo account passwords. Obtain authorized demonstration access separately from the project owner.
+Reviewers can use the public tutor and staff buttons directly; no registration or private access arrangement is required.
 
 ### Public exploration accounts
 The sign-in screen offers dedicated shared tutor and staff accounts with fictional data. The public demo password is intentionally bundled; these accounts must never receive administrator access or real personal records. Staff visitors can edit the shared fictional roster and see existing test history. Personal authentication emails are not included in the client bundle.
