@@ -2,7 +2,7 @@
 // Opening a link does not consume it: the user explicitly chooses Continue.
 export function showAccountAccess({client, shell, location=window.location, history=window.history, document=window.document}) {
   if(['/setup-recovery','/password-recovery'].includes(location.pathname)) {
-    shell('<section class="card signin"><h1>Recovery setup is still in progress</h1><p>Replacement emails are not connected yet. No email has been requested or sent.</p><a href="/">Back to sign in</a></section>');
+    shell('<section class="card signin"><h1>Need help signing in?</h1><p>Contact your program administrator for account recovery. No email has been requested or sent.</p><a href="/">Back to sign in</a></section>');
     return true;
   }
   if(location.pathname!=='/account-access') return false;

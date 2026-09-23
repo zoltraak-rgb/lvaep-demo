@@ -403,3 +403,28 @@ test('administrator account access requires explicit confirmation and freezes an
   assert.equal(calls[0].p_version,3);assert.equal(calls[0].p_person,tutor);assert.ok(form.querySelector('button').disabled);assert.match(doc.querySelector('#access-save-status').textContent,/refresh saved records/);
  }finally{dom.window.close();fixture.people=[original];}
 });
+test('guided tour highlights features, dismisses, and stays dismissed after reload',async()=>{
+ const dom=screen(mockClient());await settle();const doc=dom.window.document;
+ assert.ok(doc.querySelector('#workspace-coach'));
+ assert.ok(doc.querySelector('#open-log').classList.contains('tour-target'));
+ doc.querySelector('#tour-next').click();
+ assert.ok(doc.querySelector('#student-profiles').classList.contains('tour-target'));
+ doc.querySelector('#tour-skip').click();
+ assert.equal(doc.querySelector('#workspace-coach'),null);
+ await dom.window.eval('loadHome()');
+ assert.equal(doc.querySelector('#workspace-coach'),null);
+ doc.querySelector('#workspace-tour').click();
+ assert.ok(doc.querySelector('#workspace-coach'));
+ dom.window.close();
+});
+test('public demo buttons use dedicated accounts and never request admin credentials',async()=>{
+ let signed;
+ const client=mockClient();client.auth.getUser=async()=>({data:{user:null}});client.auth.signInWithPassword=async input=>{signed=input;return {error:{message:'test failure'}};};
+ const dom=screen(client);await settle();const doc=dom.window.document;
+ assert.equal(doc.querySelectorAll('[data-demo-role]').length,2);
+ doc.querySelector('[data-demo-role="staff"]').click();await settle();
+ assert.equal(signed.email,'staff@lvaep-demo.example');
+ assert.match(doc.querySelector('#login-status').textContent,/Could not open/);
+ assert.equal(doc.querySelector('[data-demo-role="staff"]').disabled,false);
+ dom.window.close();
+});

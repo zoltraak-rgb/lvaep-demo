@@ -36,3 +36,8 @@ These observations occurred during local-site development against hosted Supabas
 - [ ] Invitation, expiry/replacement, reset, revoke and scheduler/follow-up delivery after integration is completed.
 
 Unfinished items remain requirements; this file does not narrow the specification. Do not claim the full demonstration complete until the required deployed workflows and account access have been checked.
+
+## Public exploration update
+- 98 automated tests pass: seeded database, no admin role, tutor mutation restriction, dedicated-account login buttons, tour progression/dismissal/reopening, and existing suite.
+- Hosted seed transaction returned Success in Supabase.
+- Final browser inspection was blocked by automatic approval review usage limits. User must check both live entry buttons, first-visit tour and sample records.

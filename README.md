@@ -53,3 +53,10 @@ GitHub Pages is free for public repositories. Supabase uses its Free plan. No pu
 See [DEMO-GUIDE.md](DEMO-GUIDE.md), [TEST-CHECKLIST.md](TEST-CHECKLIST.md) and [CSV samples](samples/README.md). Automated tests exercise real migrations in isolated PostgreSQL (PGlite), domain calculations and browser-form behavior (JSDOM). They do not replace hosted authentication, inbox delivery or usability testing. Test identities are synthetic and mail transports are stubbed.
 
 Public source contains no demo account passwords. Obtain authorized demonstration access separately from the project owner.
+
+### Public exploration accounts
+The sign-in screen offers dedicated shared tutor and staff accounts with fictional data. The public demo password is intentionally bundled; these accounts must never receive administrator access or real personal records. Staff visitors can edit the shared fictional roster and see existing test history. Personal authentication emails are not included in the client bundle.
+
+A first-visit tour highlights role-specific features and can be reopened with Quick tour. Tour completion is stored per account in the current browser. History shows changed fields first and retains full details in a collapsed section.
+
+`setup/public-demo-seed.sql` installs fictional data after the two authentication users have been created. It refuses a repeat installation and uses the normal application functions for lessons, requests, achievements and monthly confirmation. This is an initial sample, not an automatic reset service. Email invitation delivery remains an undeployed integration; the demo buttons use normal password authentication.
