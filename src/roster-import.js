@@ -25,3 +25,21 @@ export function validImportDate(value) {
  if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
  const date=new Date(`${value}T00:00:00Z`);return !Number.isNaN(date.valueOf())&&date.toISOString().slice(0,10)===value;
 }
+export function rosterRows(text) {
+ const {headers,rows}=parseCsv(text),expected=['student_ref','student_name','tutor_ref','starts_on'];
+ if(headers.length!==expected.length||expected.some(h=>!headers.includes(h)))throw Error('Use exactly these columns: '+expected.join(', '));
+ if(!rows.length)throw Error('Add at least one student row.');
+ const seen=new Set(),names=new Map();
+ return rows.map(({line,values})=>{
+  if(values.length!==headers.length)throw Error(`Row ${line}: expected four columns.`);
+  const row=Object.fromEntries(headers.map((key,i)=>[key,values[i].trim()]));
+  if(!/^[A-Za-z0-9_-]{1,80}$/.test(row.student_ref))throw Error(`Row ${line}: student reference must use letters, numbers, hyphens or underscores (up to 80).`);
+  if(!row.student_name||row.student_name.length>120)throw Error(`Row ${line}: enter a student name, up to 120 characters.`);
+  if(Boolean(row.tutor_ref)!==Boolean(row.starts_on))throw Error(`Row ${line}: supply both tutor reference and start date, or leave both blank.`);
+  if(row.starts_on&&!validImportDate(row.starts_on))throw Error(`Row ${line}: use a real date in YYYY-MM-DD format.`);
+  const identity=[row.student_ref,row.tutor_ref,row.starts_on].join('|');
+  if(seen.has(identity))throw Error(`Row ${line}: this student/assignment row is repeated.`);seen.add(identity);
+  if(names.has(row.student_ref)&&names.get(row.student_ref)!==row.student_name)throw Error(`Row ${line}: the same student reference has different names.`);names.set(row.student_ref,row.student_name);
+  return row;
+ });
+}

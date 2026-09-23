@@ -12,3 +12,8 @@ test('CSV rejects malformed quoting, duplicated headers and excessive input',()=
 test('import dates reject rollover and ambiguous formats',()=>{
  assert.equal(validImportDate('2026-02-29'),false);assert.equal(validImportDate('2028-02-29'),true);assert.equal(validImportDate('09/22/2026'),false);assert.equal(validImportDate('2026-13-01'),false);
 });
+test('roster columns and references reject inconsistent identity and dates',async()=>{
+ const {rosterRows}=await import('../src/roster-import.js');const header='student_ref,student_name,tutor_ref,starts_on\n';
+ assert.equal(rosterRows(header+'DEMO-1,Test,,')[0].student_ref,'DEMO-1');
+ for(const body of ['DEMO-1,Test,TUTOR-1,','DEMO-1,Test,,2026-08-01','DEMO-1,Test,,\nDEMO-1,Other,,','DEMO-1,Test,,\nDEMO-1,Test,,'])assert.throws(()=>rosterRows(header+body));
+});

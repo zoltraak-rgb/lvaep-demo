@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {JSDOM} from 'jsdom';
 import {showAccountAccess} from '../src/account-access.js';
+import {rosterRows} from '../src/roster-import.js';
 import * as domain from '../src/domain.js';
 const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'');
 const tutor='00000000-0000-4000-8000-000000000001';
 const student='00000000-0000-4000-8000-000000000002';
-const fixture={achievements:[],student_requests:[],lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
+const fixture={roster_references:[],achievements:[],student_requests:[],lesson_plans:[],planned_occurrences:[],people:[{id:tutor,display_name:'Alex <script>alert(1)</script>',active:true,roles:['tutor']}],students:[{id:student,display_name:'Fictional learner'}],assignments:[{tutor_id:tutor,student_id:student,starts_on:'2020-01-01'}],lessons:[]};
 function mockClient({failReads=false,rpc}={}) {
   return {auth:{getUser:async()=>({data:{user:{id:tutor}}}),onAuthStateChange:()=>{},signOut:async()=>({})},
     from(table){
@@ -18,7 +19,7 @@ function mockClient({failReads=false,rpc}={}) {
 }
 function screen(client=null) {
   const dom=new JSDOM('<div id="app"></div>',{url:'https://local.test/',runScripts:'outside-only'});
-  Object.assign(dom.window,domain,{structuredClone,client,rememberSession:()=>{},showAccountAccess:options=>showAccountAccess({...options,document:dom.window.document,location:dom.window.location,history:dom.window.history})});
+  Object.assign(dom.window,domain,{structuredClone,rosterRows,client,rememberSession:()=>{},showAccountAccess:options=>showAccountAccess({...options,document:dom.window.document,location:dom.window.location,history:dom.window.history})});
   dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
   dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
   dom.window.alert=()=>{};
@@ -348,4 +349,21 @@ test('assignment ending requires confirmation and freezes uncertain date and rea
  const original=fixture.assignments;fixture.assignments=[{id:'assignment',tutor_id:tutor,student_id:student,starts_on:'2020-01-01',version:1,stopped:false}];const calls=[];
  const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{...fixture.assignments[0],ends_on:payload.p_end,stopped:true,version:2}};}}));
  try{await settle();const doc=dom.window.document;doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();doc.querySelector('[data-stop-assignment]').click();const form=doc.querySelector('#end-assignment-form');doc.querySelector('#assignment-reason').value='Fictional move';form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));assert.equal(calls.length,0);doc.querySelector('#assignment-confirm').checked=true;form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.ok(doc.querySelector('#last-tutoring-date').disabled);form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);assert.match(doc.querySelector('#assignment-status').textContent,/Assignment ended/);}finally{fixture.assignments=original;dom.window.close();}
+});
+
+test('roster import previews before mutation and freezes uncertain commit retries',async()=>{
+ const original=fixture.people[0].roles;fixture.people[0].roles=['staff'];const calls=[];
+ const actions=[{student_ref:'DEMO-001',student_name:'Fictional <learner>',student_action:'Create student',assignment_action:'No assignment',same_name_warning:true}];
+ const dom=screen(mockClient({rpc:async(name,payload)=>{
+  if(name!=='import_roster')return {data:{status:'not_reviewed'}};
+  calls.push(structuredClone(payload));if(!payload.p_commit)return {data:{status:'preview',actions}};
+  return calls.filter(c=>c.p_commit).length===1?{error:{message:'offline'}}:{data:{status:'imported',row_count:1}};
+ }}));
+ try{
+  await settle();const doc=dom.window.document;doc.querySelector('#import-roster').click();await settle();
+  doc.querySelector('#roster-csv').value='student_ref,student_name,tutor_ref,starts_on\nDEMO-001,Fictional <learner>,,';doc.querySelector('#preview-import').click();await settle();
+  assert.equal(calls.length,1);assert.equal(calls[0].p_commit,false);assert.match(doc.querySelector('#import-preview').textContent,/Same-name warning/);assert.equal(doc.querySelector('learner'),null);
+  doc.querySelector('#commit-import').click();assert.equal(calls.length,1);doc.querySelector('#confirm-import').checked=true;doc.querySelector('#commit-import').click();await settle();
+  assert.ok(doc.querySelector('#roster-csv').disabled);doc.querySelector('#commit-import').click();await settle();assert.deepEqual(calls[1],calls[2]);assert.match(doc.querySelector('#import-status').textContent,/Imported 1 rows/);
+ }finally{fixture.people[0].roles=original;dom.window.close();}
 });

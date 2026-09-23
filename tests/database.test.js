@@ -35,6 +35,7 @@ before(async()=>{
   await db.exec(await readFile(new URL('../supabase/migrations/0011_request_corrections.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0012_achievements.sql',import.meta.url),'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/0013_assignment_endings.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/0014_roster_import.sql',import.meta.url),'utf8'));
   for(const role of ['admin','staff','tutor','other']) {
     await db.query('insert into auth.users(id) values($1)',[ids[role]]);
     await db.query('insert into public.people(id,display_name,roles) values($1,$2,$3)',[ids[role],role,[role==='other'?'tutor':role]]);
@@ -435,4 +436,26 @@ test('assignment cannot end before saved attendance and restoration cannot overl
  await assert.rejects(call("select public.change_assignment_status($1,1,'2026-08-10','Check saved dates',false)",[assignment]),/Later saved records/);
  await call("select public.change_assignment_status($1,1,'2026-08-20','Last session',false)",[assignment]);
  await as('staff');await call("select public.assign_student($1,$2,$3,'2026-08-21')",[uuid(),ids.tutor,student]);await assert.rejects(call("select public.change_assignment_status($1,2,null,'Restore',true)",[assignment]),/overlaps/);
+});
+
+const importCall=(id,rows,commit=false,expected=null)=>call('select public.import_roster($1,$2::jsonb,$3,$4::jsonb) as r',[id,JSON.stringify(rows),commit,expected===null?null:JSON.stringify(expected)]);
+test('roster preview writes nothing and import safely reuses references and retries',async()=>{
+ await as('staff');const id=uuid();const rows=[{student_ref:'IMPORT-TEST-1',student_name:'Import learner',tutor_ref:'TUTOR-'+ids.tutor,starts_on:'2026-08-01'}];
+ const preview=(await importCall(id,rows))[0].r;assert.equal(preview.status,'preview');assert.equal((await call("select * from public.students where display_name='Import learner'")).length,0);
+ assert.equal((await importCall(id,rows,true,preview.actions))[0].r.status,'imported');await importCall(id,rows,true,preview.actions);
+ assert.equal((await call("select * from public.students where display_name='Import learner'")).length,1);
+ const again=(await importCall(uuid(),rows))[0].r;assert.equal(again.actions[0].student_action,'Use existing student');assert.equal(again.actions[0].assignment_action,'Already assigned');
+ await importCall(uuid(),rows,true,again.actions);assert.equal((await call("select * from public.students where display_name='Import learner'")).length,1);
+ await assert.rejects(importCall(id,[{...rows[0],student_name:'Different identity'}],true,preview.actions),/does not match/);
+});
+test('roster import blocks stale preview, malformed rows and unauthorized access',async()=>{
+ await as('staff');const rows=[{student_ref:'IMPORT-TEST-2',student_name:'Import learner',tutor_ref:'',starts_on:''}],id=uuid();const preview=(await importCall(id,rows))[0].r;
+ assert.equal(preview.actions[0].same_name_warning,true);
+ await importCall(uuid(),rows,true,preview.actions);
+ await assert.rejects(importCall(id,rows,true,preview.actions),/changed since preview/);
+ await assert.rejects(importCall(uuid(),[{...rows[0],student_name:'Conflicting name'}]),/another saved name/);
+ await assert.rejects(importCall(uuid(),[{...rows[0],tutor_ref:'missing',starts_on:'2026-08-01'}]),/Unknown or inactive/);
+ await assert.rejects(importCall(uuid(),[{...rows[0],tutor_ref:'TUTOR-'+ids.tutor,starts_on:'2026-02-30'}]),/date\/time|out of range/);
+ await assert.rejects(importCall(uuid(),[rows[0],rows[0]]),/Repeated/);
+ await as('tutor');await assert.rejects(importCall(uuid(),rows),/Staff access/);assert.equal((await call('select * from public.roster_references')).length,0);
 });
