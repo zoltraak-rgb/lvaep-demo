@@ -1,0 +1,5 @@
+student_ref,student_name,tutor_ref,starts_on
+,Morgan Invalid,,
+IMPORT-BAD-001,First Name,,
+IMPORT-BAD-001,Different Name,,
+IMPORT-BAD-002,Invalid Date,UNKNOWN-TUTOR,2026-02-30

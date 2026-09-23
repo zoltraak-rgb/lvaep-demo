@@ -1,30 +1,38 @@
-# Verification status and next checks
+# Verification record
 
-## Automated local checks
+## Automated
 
-- Run `pnpm test` for actual migration/function/RLS tests and reporting/date calculations.
-- Run `pnpm build` for the unconfigured preview.
-- Also build with non-secret placeholder Supabase URL/key to compile the configured integration path. This is a compilation check, not an authenticated service test.
+Run `pnpm test` and `pnpm build`. Tests cover database role isolation, last-admin protection, group accounting, partial attendance, dates, retries, stale writes, recurring plans, pending identity resolution/reversal, monthly review preservation/invalidation, achievements, assignment endings, CSV import identity/atomicity, site/schedule edits and absence permissions. DOM tests cover forms, escaping, errors, retries and participant correction.
 
-## Before the first live demonstration
+All email transport tests use stubs. PostgreSQL tests use isolated PGlite with synthetic Auth identities; they are not proof of deployed email or real concurrent connection behavior.
 
-- Verify Free plans and provider ownership without credit-card enrollment.
-- Apply migrations to a dedicated empty demo project; verify anon, tutor, second tutor, staff and admin through the real API.
-- Provision real invitation-controlled users without public signup or role choice; test invitation, revocation, setup recovery and password reset.
-- Exercise sign-in persistence and shared-device sign-out on deployed pages.
-- Staff add/assign a fictional student. Tutor saves a shared 90-minute lesson with 90/45-minute attendance. Check tutor time 90, student time 135.
-- Retry a lost success response: one saved lesson. A deliberate second lesson should warn and require explicit confirmation.
-- Invalid student in group: save nothing. Second tutor must not read the lesson, attendance or audit.
-- Check stale writes, simultaneous requests and deactivation against hosted PostgreSQL.
-- Inspect mobile at 375px and desktop; tab through sign-in, dialogs and save/retry, including focus return, status announcements and validation.
-- Complete every remaining feature/failure-case requirement from the final handoff; this checklist does not replace it.
+## Manual checks already observed during development
 
-No manual/deployed checks above have passed yet. No recipient delivery test has run.
+- Existing administrator/tutor password sign-in and hosted Supabase records.
+- Tutor lesson saving, planned lesson recording, individual attendance and report updates.
+- Mixed official/pending lesson shows teaching time once and pending minutes separately.
+- Achievement save and appearance in review without changing hours.
+- Supabase migrations through 0016 reported success in the hosted editor.
+- EmailJS dashboard test received in the user-controlled mailbox (separate from app email integration).
 
-## Account-link screens — local automated checks only
-- Signed invite/recovery token is retained only in page memory after removing the fragment. Opening the page does not call verifyOtp; Continue is required.
-- Password confirmation and minimum length, expired-link routing, changed identity, and uncertain-save handling covered by automated DOM tests.
-- Pending real browser checks: keyboard through Continue/password fields/Save, visible focus and error announcement, 375px mobile width and zoom, password-manager behavior. Browser automatic review usage-limit block prevented these checks; no alternate browser automation attempted.
-- Pending hosted checks: actual invite/reset, revoked invite cannot activate, same identity/assignments preserved, replacement-link request throttling, reload after token consumption. Recovery pages are explicitly unconnected; do not mark the full flow complete.
+These observations occurred during local-site development against hosted Supabase. They are not blanket confirmation of every production URL workflow.
 
-Monthly review: migration 0003 is locally tested only. Verify deployed tutor confirmation, ended/zero-session membership, changed-since-review, staff read-only review, keyboard/month selection and stale-save handling before release. Pending linkage exception remains unimplemented.
+## Deployed acceptance checklist
+
+- [ ] Open public URL while signed out; no records or role switch appear.
+- [ ] Existing tutor and administrator can sign in, reload and sign out.
+- [ ] Shared-device option clears the local session on browser-session end.
+- [ ] Tutor cannot access staff report/roster or another tutor's data.
+- [ ] Separate staff account cannot alter administrator settings.
+- [ ] Save shared 90-minute lesson with 90/45 attendance: teaching 90, attendance 135.
+- [ ] Remove/add an attendee in correction; totals update, history remains.
+- [ ] Duplicate warning permits a deliberate second lesson; retry creates no extra row.
+- [ ] Pending linking preserves lesson date, teaching time and prior review confirmation.
+- [ ] Previous-month confirmation and later correction produce appropriate review state.
+- [ ] CSV/PDF match current visible report and identify their snapshot time.
+- [ ] Import preview writes nothing; valid repeat is idempotent; invalid sample commits nothing.
+- [ ] Absence codes add zero hours; tutors cannot enter them unless enabled by admin.
+- [ ] Phone layout and keyboard flow: sign-in, lesson, review and report.
+- [ ] Invitation, expiry/replacement, reset, revoke and scheduler/follow-up delivery after integration is completed.
+
+Unfinished items remain requirements; this file does not narrow the specification. Do not claim the full demonstration complete until the required deployed workflows and account access have been checked.

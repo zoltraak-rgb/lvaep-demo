@@ -373,3 +373,22 @@ test('absence controls stay off for tutors until program setting enables entry',
  fixture.program_settings[0].tutor_absence_entry=true;const calls=[];dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload});return {data:{id:payload.p_id,tutor_id:tutor,student_id:student,absence_date:payload.p_date,code:payload.p_code,version:1}};}}));
  try{await settle();doc=dom.window.document;doc.querySelector('#student-profiles').click();doc.querySelector('.profile-choice').click();doc.querySelector('#add-absence').click();doc.querySelector('#absence-form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls[0].name,'save_absence');assert.equal(calls[0].payload.p_tutor,tutor);assert.match(doc.querySelector('#absence-status').textContent,/No teaching or attendance hours added/);}finally{fixture.program_settings[0].tutor_absence_entry=false;dom.window.close();}
 });
+
+test('lesson correction changes participants and retries exact attendance after uncertain response',async()=>{
+ const other='00000000-0000-4000-8000-000000000003';
+ const original={students:fixture.students,assignments:fixture.assignments,lessons:fixture.lessons};const calls=[];
+ fixture.students=[...fixture.students,{id:other,display_name:'Second learner'}];
+ fixture.assignments=[...fixture.assignments,{tutor_id:tutor,student_id:other,starts_on:'2020-01-01'}];
+ fixture.lessons=[{id:'edit-test',tutor_id:tutor,lesson_date:domain.nyToday(),minutes:60,version:1,attendance:[{student_id:student,minutes:60}],pending_attendance:[]}];
+ const dom=screen(mockClient({rpc:async(name,payload)=>{calls.push({name,payload:structuredClone(payload)});return calls.length===1?{error:{message:'offline'}}:{data:{status:'saved'}};}}));
+ try {
+  await settle();const doc=dom.window.document;doc.querySelector('[data-edit-lesson]').click();
+  const first=doc.querySelector(`[data-attending="student:${student}"]`);first.click();
+  const second=doc.querySelector(`[data-attending="student:${other}"]`);second.click();
+  doc.querySelector(`[data-edit-student="${other}"]`).value='45';
+  const form=doc.querySelector('#edit-lesson-form');form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await settle();
+  assert.equal(calls[0].name,'correct_mixed_lesson');assert.deepEqual(calls[0].payload.p_participants,[{student_id:other,minutes:45}]);
+  assert.equal(calls[0].payload.p_minutes,60);assert.ok(second.disabled);
+  form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);
+ }finally{dom.window.close();Object.assign(fixture,original);}
+});

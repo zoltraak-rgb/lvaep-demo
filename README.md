@@ -1,44 +1,53 @@
-# LVAEP demonstration
+# LVAEP tutoring records — demonstration
 
-A student project for fictional tutoring records. Not an official LVAEP service.
+A student-built demonstration for a literacy tutoring program. **Not an official LVAEP service. Use fictional data only.**
 
-## Current increment
+Tutors record shared lessons once while preserving each student's attendance. Staff review monthly reports and resolve students waiting for an assignment. Password sign-in and database-enforced roles protect records; there is no public role switch.
 
-Implemented locally: invitation-account password sign-in integration, role-restricted read policies, staff student creation and assignment, atomic multi-student lesson saving, individual attendance minutes, duplicate warnings and safe retries, a calendar list, and basic monthly time totals. No public role selector or simulated persistence.
+## Working features
 
-**This is an incomplete development build.** Supabase has not been connected and the site is not deployed. Without configuration, the landing page explicitly disables sign-in. An invitation flow is not implemented merely because the password sign-in screen exists.
+- Email/password sign-in, persistent or shared-device sessions, sign-out; tutor, staff and administrator database roles.
+- Student roster and dated assignments, CSV preview/import with stable identity references, atomic commits and safe retries.
+- Individual/group attendance, partial attendance, duplicate warnings, saved groups, weekly plans and month/list calendar. Plans never create attendance automatically.
+- Corrections, participant changes and voiding with audit history and stale-write detection.
+- Pending-student requests and attendance, verified staff linking and correction. Teaching time counts once; pending attendance stays separate.
+- Per-tutor monthly review, confirmation and updated-since-review state. Linking already-reviewed pending attendance preserves the tutor's confirmation.
+- Staff reports, search, student details, CSV export and browser Print / Save PDF.
+- Achievements, dated absence codes, administrator control of tutor absence entry, assignment endings and staff reversal, reusable tutoring site/schedule details.
 
-Still to build: invitations/recovery/mail hook; account management screens; session editing/voiding; saved groups; month-grid calendar and recurrence; pending students; review/version tracking; achievements/absence/stopped assignments; imports; complete reporting/search/exports; scheduling/follow-up; settings; demo accounts/reset kit. No scope has been dropped. See the private project checkpoint for the authoritative specification and decisions.
+## Incomplete integration
 
-## Run locally
+This repository is a substantial demonstration, **not a production-ready system or a completed implementation of every planned feature**. Invitation/replacement-link/password-reset delivery, account provisioning UI, monthly scheduled emails and staff follow-up delivery are not connected. Server email modules are tested building blocks; they do not send mail by themselves. Separate staff demonstration account and a hosted reset/seed procedure still need setup. Do not enter real student data.
 
-Use Node.js 22.12+ (tested with 24.19), and pnpm:
+## Run and test
+
+Requires Node.js 22.12+ and pnpm.
 
 ```sh
 pnpm install --frozen-lockfile
+cp .env.example .env.local
+# Set your Supabase URL and publishable key in .env.local.
 pnpm dev
 pnpm test
 pnpm build
 ```
 
-Copy `.env.example` to `.env.local` only when the project exists. Enter its URL and **publishable** key. These two values identify the public API; row-level security enforces access. Never put a service-role key, database password or mail-provider key into `VITE_*` variables or source files. Restart the development server after configuration changes.
+Never use a service-role key in `VITE_*`. The publishable key is intentionally browser-visible; row-level security and checked database functions enforce access. Passwords, provider secrets and `.env.local` are excluded from Git.
 
-## Database
+## Database setup
 
-`supabase/migrations/0001_foundation.sql` creates tables, read policies and transaction-based write functions. Apply in order to a **new dedicated demonstration project**, not an existing operational database. The migration is transactional, but not repeatable after successful installation. It assumes Supabase's `auth.users`, `auth.uid()`, `anon` and `authenticated` roles. Keep public signup disabled. Do not use a public client to bootstrap administrator access.
+Apply `supabase/migrations/*.sql` in numeric order to a dedicated new **Supabase Free demonstration project**. Migrations are transactional but generally not repeatable after successful installation. Existing projects should run only unapplied migrations. Keep public signup disabled. The owner must securely create the initial Auth users and matching `people` records; ordinary visitors cannot choose a role. No credentials are included in this repository.
 
-The first administrator must be linked to a verified Supabase Auth user by the project owner through a privileged setup process. That account-creation workflow and the Send Email Hook still need implementation; do not invent recipient addresses or paste credentials into SQL documentation. Creating records/importing data must not send invitations.
+All client-facing tables have row-level security. Application writes go through role-checked functions with validation and audit events. Last-administrator protection is enforced in the database. Shared lesson duration and per-student attendance are separate; dates are reported in America/New_York.
 
-Every client table has row-level security; clients receive SELECT only. Write functions enforce roles, assignments, version checks and audit events. Tutors cannot change roles or write tables directly. Public functions have their default PUBLIC execution privilege revoked. A tutor's request UUID makes a retry identify the same logical lesson; a different payload using that UUID is rejected. Shared lessons and attendance are separate tables. Assignment dates are inclusive in this first increment; stop/reversal UI remains unimplemented pending policy clarification.
+## Deployment
 
-## Verification
+The Vite production output is `dist/`. `.openai/hosting.json` configures Sites static hosting. Build with the target project's publishable configuration, then deploy `dist` through the hosting workflow. Supabase retains authentication and storage. Hosting does not enable the unfinished email modules. Do not upload the parent planning/setup directory, private account details or local environment files.
 
-Tests run the actual migration in an isolated in-memory PostgreSQL engine (PGlite), with test-only Supabase identity stubs and synthetic IDs. They exercise database permissions and functions; the engine is not used to store browser records or replace the hosted backend. Tests cover privacy, direct-write denial, last-admin protection, assignment validation, atomic group saves, partial attendance, same-day warnings, retry handling, stale edits, historical dates and report calculations. Test fixtures never send messages.
+Sites hosting is included within existing eligible ChatGPT plan beta limits; Supabase uses its Free plan. Limits and availability can change. No purchased domain, paid upgrades or billable overages are authorized for this demo.
 
-These tests **do not** verify real Supabase authentication, deployed API grants, mail delivery, simultaneous connections, visual layout, keyboard interaction or mobile usability. Those checks remain required before claiming a working demonstration. The hosted project's configured API page size must remain at least 1,000 for the current pagination helper; report snapshot consistency under concurrent edits needs a later backend reporting transaction.
+## Demo and verification
 
-## Deployment and budget
+See [DEMO-GUIDE.md](DEMO-GUIDE.md), [TEST-CHECKLIST.md](TEST-CHECKLIST.md) and [CSV samples](samples/README.md). Automated tests exercise real migrations in isolated PostgreSQL (PGlite), domain calculations and browser-form behavior (JSDOM). They do not replace hosted authentication, inbox delivery or usability testing. Test identities are synthetic and mail transports are stubbed.
 
-No deployment has occurred. Proposed services are Supabase Free and Cloudflare Workers Free, with EmailJS Free for server-side email. Account-specific $0/no-card terms and delivery remain verification gates; no paid plan or domain purchase is authorized. Cloudflare deployment configuration and scheduled jobs are not included in this increment.
-
-Only this application directory is intended for the eventual public source repository. Private planning/checkpoint files, mailbox setup details and provider credentials remain outside it.
+Public source contains no demo account passwords. Obtain authorized demonstration access separately from the project owner.
