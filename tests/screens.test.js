@@ -392,3 +392,14 @@ test('lesson correction changes participants and retries exact attendance after 
   form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.deepEqual(calls[0],calls[1]);
  }finally{dom.window.close();Object.assign(fixture,original);}
 });
+
+test('administrator account access requires explicit confirmation and freezes an uncertain change',async()=>{
+ const original=fixture.people[0];fixture.people=[{...original,roles:['admin'],version:3}];const calls=[];
+ const dom=screen(mockClient({rpc:async(name,payload)=>{if(name==='set_person_access'){calls.push(payload);return {error:{message:'offline'}};}return {data:{status:'not_reviewed',can_confirm:false}};}}));
+ try {
+  await settle();const doc=dom.window.document;doc.querySelector('#manage-access').click();doc.querySelector('[data-access-person]').click();
+  const form=doc.querySelector('#access-form');form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();assert.equal(calls.length,0);
+  doc.querySelector('#access-confirm').checked=true;form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await settle();
+  assert.equal(calls[0].p_version,3);assert.equal(calls[0].p_person,tutor);assert.ok(form.querySelector('button').disabled);assert.match(doc.querySelector('#access-save-status').textContent,/refresh saved records/);
+ }finally{dom.window.close();fixture.people=[original];}
+});

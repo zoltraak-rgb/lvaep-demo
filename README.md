@@ -13,11 +13,11 @@ Tutors record shared lessons once while preserving each student's attendance. St
 - Pending-student requests and attendance, verified staff linking and correction. Teaching time counts once; pending attendance stays separate.
 - Per-tutor monthly review, confirmation and updated-since-review state. Linking already-reviewed pending attendance preserves the tutor's confirmation.
 - Staff reports, search, student details, CSV export and browser Print / Save PDF.
-- Achievements, dated absence codes, administrator control of tutor absence entry, assignment endings and staff reversal, reusable tutoring site/schedule details.
+- Achievements, dated absence codes, administrator access management for existing accounts, control of tutor absence entry, assignment endings and staff reversal, reusable tutoring site/schedule details.
 
 ## Incomplete integration
 
-This repository is a substantial demonstration, **not a production-ready system or a completed implementation of every planned feature**. Invitation/replacement-link/password-reset delivery, account provisioning UI, monthly scheduled emails and staff follow-up delivery are not connected. Server email modules are tested building blocks; they do not send mail by themselves. Separate staff demonstration account and a hosted reset/seed procedure still need setup. Do not enter real student data.
+This repository is a substantial demonstration, **not a production-ready system or a completed implementation of every planned feature**. Invitation/replacement-link/password-reset delivery, new-account provisioning UI, monthly scheduled emails and staff follow-up delivery are not connected. Server email modules are tested building blocks; they do not send mail by themselves. Separate staff demonstration account and a hosted reset/seed procedure still need setup. Do not enter real student data.
 
 ## Run and test
 
