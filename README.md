@@ -42,9 +42,11 @@ All client-facing tables have row-level security. Application writes go through 
 
 ## Deployment
 
-The Vite production output is `dist/`. `.openai/hosting.json` configures Sites static hosting. Build with the target project's publishable configuration, then deploy `dist` through the hosting workflow. Supabase retains authentication and storage. Hosting does not enable the unfinished email modules. Do not upload the parent planning/setup directory, private account details or local environment files.
+The public deployment uses GitHub Pages from the `docs/` folder on `main`. Run `pnpm build:pages` with the target project's URL and publishable key in `.env.local`, commit the generated `docs/` output with the source, and push. Relative asset URLs support the repository path. The generated JavaScript includes the public project identifier/key, never a service-role key or password.
 
-Sites hosting is included within existing eligible ChatGPT plan beta limits; Supabase uses its Free plan. Limits and availability can change. No purchased domain, paid upgrades or billable overages are authorized for this demo.
+Supabase retains authentication and storage. Static hosting does not enable unfinished server email modules. Do not upload the parent planning/setup directory, private account details or local environment files.
+
+GitHub Pages is free for public repositories. Supabase uses its Free plan. No purchased domain, paid upgrades or billable overages are authorized. The earlier `.openai/hosting.json` identifies a separate private Sites deployment; GitHub Pages is now the submission deployment because it is owned by the user's GitHub account.
 
 ## Demo and verification
 

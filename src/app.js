@@ -12,7 +12,7 @@ let requestId=crypto.randomUUID();
 const isStaff=()=>person?.roles.some(r=>['staff','admin'].includes(r));
 const isTutor=()=>person?.roles.includes('tutor');
 function shell(body) {
-  app.innerHTML=`<header class="site-header"><a class="brand" href="/" aria-label="LVAEP Demo home"><span class="brand-mark" aria-hidden="true">L</span><span>LVAEP <small>TUTORING RECORDS</small></span></a><div class="header-right"><span class="demo-tag">Student demonstration</span>${person?`<span class="identity">${escape(person.display_name)}</span><button class="quiet" id="signout">Sign out</button>`:''}</div></header><main id="main" tabindex="-1">${body}</main><footer>Fictional demonstration · Not an official LVAEP service</footer>`;
+  app.innerHTML=`<header class="site-header"><a class="brand" href="./" aria-label="LVAEP Demo home"><span class="brand-mark" aria-hidden="true">L</span><span>LVAEP <small>TUTORING RECORDS</small></span></a><div class="header-right"><span class="demo-tag">Student demonstration</span>${person?`<span class="identity">${escape(person.display_name)}</span><button class="quiet" id="signout">Sign out</button>`:''}</div></header><main id="main" tabindex="-1">${body}</main><footer>Fictional demonstration · Not an official LVAEP service</footer>`;
   document.querySelector('#signout')?.addEventListener('click',async()=>{
     const {error}=await client.auth.signOut({scope:'local'});
     if(error) { alert('Sign out could not finish. Please try again.'); return; }
